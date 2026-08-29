@@ -24,17 +24,28 @@ int Server::run(uint16_t port) {
 
     std::cout << "Listening on port " << port << "...\n";
 
-    int client_fd = accept(server_fd, nullptr, nullptr);
+    while (true) {
+        int client_fd = accept(server_fd, nullptr, nullptr);
+        while (true) {
+            char buffer[1024]{};
+            ssize_t bytes_received = recv(client_fd, buffer, sizeof(buffer), 0); //enters the first 1024 bytes into buffer from client
+            if (bytes_received > 0) {
+                std::cout << "Received: " << buffer << '\n';
+                std::cout << "Received " << bytes_received << " bytes\n";
+            }
+            else if (bytes_received == 0) {
+                std::cout << "Client disconnected\n";
+                break;
+            }
+            else {
+                perror("recv");
+            }
 
-    char buffer[1024]{};
-    recv(client_fd, buffer, sizeof(buffer), 0); //enters the first 1024 bytes into buffer from client
-
-    std::cout << "Received:\n" << buffer << '\n';
-
-    const char* response = "+PONG\r\n";
-    send(client_fd, response, std::strlen(response), 0); //send the response
-
-    close(client_fd);
+            const char* response = "+PONG\r\n";
+            send(client_fd, response, std::strlen(response), 0); //send the response
+        }
+        close(client_fd);
+    }
     close(server_fd);
 
     return 0;

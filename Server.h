@@ -9,7 +9,10 @@
 
 class Server {
 public:
-    int run(uint16_t port);
+    Server(uint16_t port);
+    int run();
+private:
+    uint16_t server_port;
 };
 
 

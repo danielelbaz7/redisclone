@@ -9,20 +9,23 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-int Server::run(uint16_t port) {
+Server::Server(uint16_t port) : server_port(port) {}
+
+
+int Server::run() {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     // AF_INET = IPV4 simplicity, stream tcp byte stream, 0 normal protocol
 
     sockaddr_in address{}; //generates ip address and port
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(port);
+    address.sin_port = htons(server_port);
 
     bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)); //binds socker to address
 
     listen(server_fd, 5); // 5 = backlog size
 
-    std::cout << "Listening on port " << port << "...\n";
+    std::cout << "Listening on port " << server_port << "...\n";
 
     while (true) {
         int client_fd = accept(server_fd, nullptr, nullptr);

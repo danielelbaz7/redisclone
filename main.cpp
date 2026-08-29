@@ -3,6 +3,6 @@
 #include "Server.h"
 
 int main() {
-    Server server{};
-    server.run(6379);
+    Server server{6379};
+    server.run();
 }

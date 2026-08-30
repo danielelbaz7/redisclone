@@ -9,6 +9,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "RespParser.h"
+
 Server::Server(uint16_t port) : server_port(port) {}
 
 
@@ -29,12 +31,14 @@ int Server::run() {
 
     while (true) {
         int client_fd = accept(server_fd, nullptr, nullptr);
+        RespParser parser{}; // one parser per client
         while (true) {
             char buffer[1024]{};
             ssize_t bytes_received = recv(client_fd, buffer, sizeof(buffer), 0); //enters the first 1024 bytes into buffer from client
             if (bytes_received > 0) {
                 std::cout << "Received: " << buffer << '\n';
                 std::cout << "Received " << bytes_received << " bytes\n";
+                parser.append(buffer, bytes_received);
             }
             else if (bytes_received == 0) {
                 std::cout << "Client disconnected\n";

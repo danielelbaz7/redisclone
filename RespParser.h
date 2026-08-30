@@ -44,6 +44,7 @@ public:
 
     CommandType parseType(const std::string& word);
 
+    void executeCommands();
 
 private:
     std::string persistent_buffer_{};

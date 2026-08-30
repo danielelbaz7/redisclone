@@ -9,12 +9,14 @@
 
 void RespParser::append(char buffer[], size_t len) {
     persistent_buffer_.append(buffer, len);
+}
+void RespParser::executeCommands() {
     ParseResult command = parseCommand();
     while (command.status == ParseStatus::Complete) {
-
         command = parseCommand();
     }
 }
+
 
 RespParser::CommandType RespParser::parseType(const std::string& word) {
     std::string upper = word;

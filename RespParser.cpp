@@ -50,25 +50,43 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
 
     while (index <= persistent_buffer_.size()) { // parse element count
         if (persistent_buffer_.substr(index, index+4) != "\r\n") {
-            if (element_count == 0) { // first get number
-                auto start = persistent_buffer_.data() + last_parsed;
-                auto end = persistent_buffer_.data() + index;
-                std::from_chars(start, end, element_count);
-                index += 4;
-                last_parsed = index;
-            } else { // then get command word
-                type = parseType(persistent_buffer_.substr(last_parsed, index));
+            auto start = persistent_buffer_.data() + last_parsed;
+            auto end = persistent_buffer_.data() + index;
+            std::from_chars(start, end, element_count);
+            if (persistent_buffer_.substr(index, index+4) != "\r\n") {
+                return {ParseStatus::Invalid, std::nullopt};
             }
-            break;
+            index += 4;
+            last_parsed = index;
         }
         index++;
     }
 
+    uint32_t next_word_size = 0;
+    std::vector<std::string> words{};
 
+    for (size_t e = 0; e < element_count; e++) {
+        if (e % 2 == 0) {
+            if (persistent_buffer_.substr(index, index+4) != "\r\n") {
+                auto start = persistent_buffer_.data() + last_parsed;
+                auto end = persistent_buffer_.data() + index;
+                std::from_chars(start, end, next_word_size);
+                if (persistent_buffer_.substr(index, index+4) != "\r\n")
+                    return {ParseStatus::Invalid, std::nullopt};
+                index += 4;
+                last_parsed = index;
+            } else {
+                index++;
+            }
+        } else {
+            std::string next_word = persistent_buffer_.substr(last_parsed, last_parsed + next_word_size);
 
-    for (size_t e = 1; e < element_count; e++) {
-
+            index += next_word_size;
+            last_parsed = index;
+        }
     }
+
+    Command command{type, }
 
     return {ParseStatus::Incomplete, std::nullopt};
 

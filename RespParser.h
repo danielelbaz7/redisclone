@@ -2,6 +2,7 @@
 // Created by Daniel Elbaz on 8/29/26.
 //
 
+#include <functional>
 #include <stddef.h>
 #include <vector>
 #include <optional>
@@ -44,7 +45,7 @@ public:
 
     CommandType parseType(const std::string& word);
 
-    void executeCommands();
+    void parseAndExecuteCommands(std::function<void(const std::string&)> onReply);
 
 private:
     std::string persistent_buffer_{};

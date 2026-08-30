@@ -39,6 +39,9 @@ int Server::run() {
                 std::cout << "Received: " << buffer << '\n';
                 std::cout << "Received " << bytes_received << " bytes\n";
                 parser.append(buffer, bytes_received);
+                parser.parseAndExecuteCommands([&](const std::string& reply) {
+                    send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
+                }); //lambda that sends the reply to the client
             }
             else if (bytes_received == 0) {
                 std::cout << "Client disconnected\n";
@@ -49,7 +52,6 @@ int Server::run() {
             }
 
             const char* response = "+PONG\r\n";
-            send(client_fd, response, std::strlen(response), 0); //send the response
         }
         close(client_fd);
     }

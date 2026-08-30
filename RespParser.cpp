@@ -86,8 +86,8 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
         }
     }
 
-    Command command{type, }
+    Command command{type, words};
 
-    return {ParseStatus::Incomplete, std::nullopt};
+    return {ParseStatus::Complete, command};
 
 }

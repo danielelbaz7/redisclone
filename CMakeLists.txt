@@ -7,4 +7,6 @@ add_executable(redisclone main.cpp
         Server.cpp
         Server.h
         RespParser.cpp
-        RespParser.h)
+        RespParser.h
+        Dispatcher.cpp
+        Dispatcher.h)

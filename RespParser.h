@@ -27,12 +27,10 @@ public:
         // Exists,
         // Expire,
         // Ttl,
-        // Unknown
+        Unknown
     };
 
-    CommandType parseCommandType(const std::string& word) {
-
-    }
+    CommandType parseCommandType(const std::string& word);
 
 private:
     std::string persistent_buffer_{};

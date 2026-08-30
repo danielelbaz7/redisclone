@@ -5,4 +5,6 @@ set(CMAKE_CXX_STANDARD 23)
 
 add_executable(redisclone main.cpp
         Server.cpp
-        Server.h)
+        Server.h
+        RespParser.cpp
+        RespParser.h)

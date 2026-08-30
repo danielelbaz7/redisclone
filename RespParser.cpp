@@ -12,6 +12,7 @@ void RespParser::append(char buffer[], size_t len) {
     ParseResult command = parseCommand();
     while (command.status == ParseStatus::Complete) {
 
+        command = parseCommand();
     }
 }
 
@@ -87,7 +88,7 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
     }
 
     Command command{type, words};
-
+    persistent_buffer_.erase(0, index);
     return {ParseStatus::Complete, command};
 
 }

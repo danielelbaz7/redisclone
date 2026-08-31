@@ -54,38 +54,40 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
     uint32_t last_parsed = index; //using this so we know where the last word starts
 
     while (index <= persistent_buffer_.size()) { // parse element count
-        if (persistent_buffer_.substr(index, index+4) != "\r\n") {
+        if (persistent_buffer_.substr(index, 2) == "\r\n") {
             auto start = persistent_buffer_.data() + last_parsed;
             auto end = persistent_buffer_.data() + index;
             std::from_chars(start, end, element_count);
-            if (persistent_buffer_.substr(index, index+4) != "\r\n") {
+            if (persistent_buffer_.substr(index, 2) != "\r\n") {
                 return {ParseStatus::Invalid, std::nullopt};
             }
-            index += 4;
+            index += 2;
             last_parsed = index;
+            break;
         }
         index++;
     }
+
 
     uint32_t next_word_size = 0;
     std::vector<std::string> words{};
 
     for (size_t e = 0; e < element_count; e++) {
-        if (e % 2 == 0) {
-            if (persistent_buffer_.substr(index, index+4) != "\r\n") {
+        if (e % 2 != 0) {
+            if (persistent_buffer_.substr(index, 2) == "\r\n") { //parse size of next word
                 auto start = persistent_buffer_.data() + last_parsed;
                 auto end = persistent_buffer_.data() + index;
                 std::from_chars(start, end, next_word_size);
-                if (persistent_buffer_.substr(index, index+4) != "\r\n")
+                if (persistent_buffer_.substr(index, 2) != "\r\n")
                     return {ParseStatus::Invalid, std::nullopt};
-                index += 4;
+                index += 2;
                 last_parsed = index;
             } else {
                 index++;
             }
         } else {
             std::string next_word = persistent_buffer_.substr(last_parsed, last_parsed + next_word_size);
-
+            words.push_back(next_word);
             index += next_word_size;
             last_parsed = index;
         }

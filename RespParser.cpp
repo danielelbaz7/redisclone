@@ -47,7 +47,6 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
 
     index++;
 
-
     uint32_t element_count = 0;
     CommandType type{CommandType::Unknown};
 
@@ -61,7 +60,7 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
             if (persistent_buffer_.substr(index, 2) != "\r\n") {
                 return {ParseStatus::Invalid, std::nullopt};
             }
-            index += 2;
+            index += 3; // skip the \r\n and the $
             last_parsed = index;
             break;
         }
@@ -73,7 +72,7 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
     std::vector<std::string> words{};
 
     for (size_t e = 0; e < element_count; e++) {
-        if (e % 2 != 0) {
+        while (true) {
             if (persistent_buffer_.substr(index, 2) == "\r\n") { //parse size of next word
                 auto start = persistent_buffer_.data() + last_parsed;
                 auto end = persistent_buffer_.data() + index;
@@ -82,14 +81,20 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
                     return {ParseStatus::Invalid, std::nullopt};
                 index += 2;
                 last_parsed = index;
-            } else {
-                index++;
+
+                //parse the actual next word
+                std::string next_word = persistent_buffer_.substr(last_parsed, next_word_size);
+                if (e == 0) {
+                    type = parseType(next_word);
+                } else {
+                    words.push_back(next_word);
+                }
+                index += next_word_size + (e + 1 < element_count ? 3 : 2); // 3 for every word except last
+                last_parsed = index;
+                break;
             }
-        } else {
-            std::string next_word = persistent_buffer_.substr(last_parsed, last_parsed + next_word_size);
-            words.push_back(next_word);
-            index += next_word_size;
-            last_parsed = index;
+
+            index++;
         }
     }
 

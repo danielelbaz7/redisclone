@@ -7,15 +7,28 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <iostream>
 
 void RespParser::append(char buffer[], size_t len) {
     persistent_buffer_.append(buffer, len);
 }
-void RespParser::parseAndExecuteCommands(std::function<void(const std::string&)> onReply) {
+void RespParser::parseAndDispatchCommands(std::function<void(const std::string&)> onReply) {
     while (true) {
         ParseResult result = parseCommand(); //stores status and command
-        std::string commandReply = executeCommand(result.command.value()); //executes command via dispatcher
-        onReply(commandReply);
+        if (result.status == ParseStatus::Invalid) {
+            std::cout << "Invalid command." << std::endl;
+            break;
+        }
+        if (result.status == ParseStatus::Incomplete) {
+            std::cout << "Incomplete command." << std::endl;
+            std::cout << persistent_buffer_ << std::endl;
+            break;
+        }
+        if (result.status == ParseStatus::Complete) {
+            std::cout << "Complete command." << std::endl;
+            std::string commandReply = executeCommand(result.command.value()); //executes command via dispatcher
+            onReply(commandReply);
+        }
     }
 }
 

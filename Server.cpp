@@ -39,7 +39,7 @@ int Server::run() {
                 std::cout << "Received: " << buffer << '\n';
                 std::cout << "Received " << bytes_received << " bytes\n";
                 parser.append(buffer, bytes_received);
-                parser.parseAndExecuteCommands([&](const std::string& reply) {
+                parser.parseAndDispatchCommands([&](const std::string& reply) {
                     send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
                 }); //lambda that sends the reply to the client
             }

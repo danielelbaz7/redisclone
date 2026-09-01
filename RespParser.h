@@ -7,6 +7,8 @@
 #include <vector>
 #include <optional>
 
+#include "KeyValueStore.h"
+
 #ifndef REDISCLONE_RESPPARSER_H
 #define REDISCLONE_RESPPARSER_H
 
@@ -45,7 +47,7 @@ public:
 
     CommandType parseType(const std::string& word);
 
-    void parseAndDispatchCommands(std::function<void(const std::string&)> onReply);
+    void parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv);
 
 private:
     std::string persistent_buffer_{};

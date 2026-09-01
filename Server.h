@@ -6,13 +6,16 @@
 #define REDISCLONE_SERVER_H
 #include <cstdint>
 
+#include "RespParser.h"
+#include "KeyValueStore.h"
 
 class Server {
 public:
-    Server(uint16_t port);
+    Server(uint16_t port, KeyValueStore& kv);
     int run();
 private:
-    uint16_t server_port;
+    uint16_t server_port_;
+    KeyValueStore& kv_;
 };
 
 

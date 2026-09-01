@@ -11,7 +11,7 @@
 
 #include "RespParser.h"
 
-Server::Server(uint16_t port) : server_port(port) {}
+Server::Server(uint16_t port, KeyValueStore& kv) : server_port_(port), kv_(kv) {}
 
 
 int Server::run() {
@@ -21,13 +21,13 @@ int Server::run() {
     sockaddr_in address{}; //generates ip address and port
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(server_port);
+    address.sin_port = htons(server_port_);
 
     bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)); //binds socker to address
 
     listen(server_fd, 5); // 5 = backlog size
 
-    std::cout << "Listening on port " << server_port << "...\n";
+    std::cout << "Listening on port " << server_port_ << "...\n";
 
     while (true) {
         int client_fd = accept(server_fd, nullptr, nullptr);
@@ -41,7 +41,7 @@ int Server::run() {
                 parser.append(buffer, bytes_received);
                 parser.parseAndDispatchCommands([&](const std::string& reply) {
                     send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
-                }); //lambda that sends the reply to the client
+                }, kv_); //lambda that sends the reply to the client
             }
             else if (bytes_received == 0) {
                 std::cout << "Client disconnected\n";

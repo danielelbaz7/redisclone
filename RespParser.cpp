@@ -12,7 +12,7 @@
 void RespParser::append(char buffer[], size_t len) {
     persistent_buffer_.append(buffer, len);
 }
-void RespParser::parseAndDispatchCommands(std::function<void(const std::string&)> onReply) {
+void RespParser::parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv) {
     while (true) {
         ParseResult result = parseCommand(); //stores status and command
         if (result.status == ParseStatus::Invalid) {
@@ -25,7 +25,7 @@ void RespParser::parseAndDispatchCommands(std::function<void(const std::string&)
         }
         if (result.status == ParseStatus::Complete) {
             std::cout << "Complete command." << std::endl;
-            std::string commandReply = executeCommand(result.command.value(), ); //executes command via dispatcher
+            std::string commandReply = executeCommand(result.command.value(), kv); //executes command via dispatcher
             onReply(commandReply);
         }
     }

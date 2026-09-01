@@ -1,8 +1,10 @@
 #include <iostream>
 
 #include "Server.h"
+#include "KeyValueStore.h"
 
 int main() {
-    Server server{6379};
+    KeyValueStore store{};
+    Server server{6379, store};
     server.run();
 }

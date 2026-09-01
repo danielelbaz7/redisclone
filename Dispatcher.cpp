@@ -65,5 +65,5 @@ std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv) {
     if (it == kHandlers.end()) {
         return "-ERR unknown command\r\n";
     }
-    return it->second(cmd);
+    return it->second(cmd, kv);
 }

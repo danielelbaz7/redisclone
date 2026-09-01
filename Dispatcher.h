@@ -4,6 +4,8 @@
 #include "RespParser.h"
 #include <string>
 
-std::string executeCommand(const RespParser::Command& cmd);
+#include "KeyValueStore.h"
+
+std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv);
 
 #endif //REDISCLONE_DISPATCHER_H

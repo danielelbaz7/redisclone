@@ -9,4 +9,6 @@ add_executable(redisclone main.cpp
         RespParser.cpp
         RespParser.h
         Dispatcher.cpp
-        Dispatcher.h)
+        Dispatcher.h
+        KeyValueStore.cpp
+        KeyValueStore.h)

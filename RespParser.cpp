@@ -21,12 +21,11 @@ void RespParser::parseAndDispatchCommands(std::function<void(const std::string&)
         }
         if (result.status == ParseStatus::Incomplete) {
             std::cout << "Incomplete command." << std::endl;
-            std::cout << persistent_buffer_ << std::endl;
             break;
         }
         if (result.status == ParseStatus::Complete) {
             std::cout << "Complete command." << std::endl;
-            std::string commandReply = executeCommand(result.command.value()); //executes command via dispatcher
+            std::string commandReply = executeCommand(result.command.value(), ); //executes command via dispatcher
             onReply(commandReply);
         }
     }

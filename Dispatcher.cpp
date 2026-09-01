@@ -55,7 +55,7 @@ const std::unordered_map<RespParser::CommandType, Handler> kHandlers = {
     {RespParser::CommandType::Ping, handlePing},
     {RespParser::CommandType::Set,  handleSet},
     {RespParser::CommandType::Get,  handleGet},
-    {RespParser::CommandType::Del,  handleUnimplemented},
+    {RespParser::CommandType::Del,  handleDel},
 };
 
 } // namespace

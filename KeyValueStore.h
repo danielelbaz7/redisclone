@@ -6,6 +6,7 @@
 #define REDISCLONE_KEYVALUESTORE_H
 #include <unordered_map>
 #include <string>
+#include <optional>
 
 
 class KeyValueStore {

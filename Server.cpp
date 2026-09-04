@@ -7,11 +7,37 @@
 #include <cstring>
 #include <iostream>
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
 
 #include "RespParser.h"
 
 Server::Server(uint16_t port, KeyValueStore& kv) : server_port_(port), kv_(kv) {}
+
+void Server::handleClient(int client_fd) {
+    RespParser parser{}; // one parser per client
+    while (true) {
+        char buffer[1024]{};
+        ssize_t bytes_received = recv(client_fd, buffer, sizeof(buffer), 0); //enters the first 1024 bytes into buffer from client
+        if (bytes_received > 0) {
+            std::cout << "Received: " << buffer << '\n';
+            std::cout << "Received " << bytes_received << " bytes\n";
+            parser.append(buffer, bytes_received);
+            parser.parseAndDispatchCommands([&](const std::string& reply) {
+                send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
+            }, kv_); //lambda that sends the reply to the client
+        }
+        else if (bytes_received == 0) {
+            std::cout << "Client disconnected\n";
+            break;
+        }
+        else {
+            perror("recv");
+            break;
+        }
+    }
+    close(client_fd);
+}
 
 
 int Server::run() {
@@ -31,29 +57,7 @@ int Server::run() {
 
     while (true) {
         int client_fd = accept(server_fd, nullptr, nullptr);
-        RespParser parser{}; // one parser per client
-        while (true) {
-            char buffer[1024]{};
-            ssize_t bytes_received = recv(client_fd, buffer, sizeof(buffer), 0); //enters the first 1024 bytes into buffer from client
-            if (bytes_received > 0) {
-                std::cout << "Received: " << buffer << '\n';
-                std::cout << "Received " << bytes_received << " bytes\n";
-                parser.append(buffer, bytes_received);
-                parser.parseAndDispatchCommands([&](const std::string& reply) {
-                    send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
-                }, kv_); //lambda that sends the reply to the client
-            }
-            else if (bytes_received == 0) {
-                std::cout << "Client disconnected\n";
-                break;
-            }
-            else {
-                perror("recv");
-            }
-
-            const char* response = "+PONG\r\n";
-        }
-        close(client_fd);
+        std::thread(&Server::handleClient, this, client_fd).detach();
     }
     close(server_fd);
 

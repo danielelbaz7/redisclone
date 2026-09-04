@@ -14,6 +14,8 @@ public:
     Server(uint16_t port, KeyValueStore& kv);
     int run();
 private:
+    void handleClient(int client_fd);
+
     uint16_t server_port_;
     KeyValueStore& kv_;
 };

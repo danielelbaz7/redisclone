@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <string>
 #include <optional>
+#include <mutex>
 
 
 class KeyValueStore {
@@ -16,6 +17,7 @@ public:
     size_t del(std::string key);
 private:
     std::unordered_map<std::string, std::string> store;
+    std::mutex mutex_;
 
 };
 

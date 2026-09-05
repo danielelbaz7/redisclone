@@ -1,5 +1,6 @@
 #include "Dispatcher.h"
 #include <functional>
+#include <mutex>
 #include <unordered_map>
 
 namespace {

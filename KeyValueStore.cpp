@@ -4,7 +4,7 @@
 
 #include "KeyValueStore.h"
 
-std::optional<std::string> KeyValueStore::get(std::string key) {
+std::optional<std::string> KeyValueStore::get(const std::string &key) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (store.contains(key)) {
         return store.at(key);
@@ -13,14 +13,27 @@ std::optional<std::string> KeyValueStore::get(std::string key) {
     return std::nullopt;
 }
 
-void KeyValueStore::set(std::string key, std::string value) {
+void KeyValueStore::set(const std::string &key, std::string value) {
     std::lock_guard<std::mutex> lock(mutex_);
     store[key] = value;
 }
 
-size_t KeyValueStore::del(std::string key) {
+int KeyValueStore::del(const std::string &key) {
     std::lock_guard<std::mutex> lock(mutex_);
     return store.erase(key) > 0;
+}
+
+int KeyValueStore::expire(const std::string &key, int seconds) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    bool key_in_store = store.contains(key);
+
+    if (!key_in_store) {
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lockExpiry(expire_mutex_);
+    expirations[key] = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    return 1;
 }
 
 

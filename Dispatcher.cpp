@@ -45,6 +45,14 @@ std::string handleDel(const RespParser::Command& cmd, KeyValueStore &kv) {
     return ":" + std::to_string(deleted) + "\r\n";
 }
 
+std::string handleExpire(const RespParser::Command& cmd, KeyValueStore &kv) {
+    if (cmd.args.size() != 2) {
+        return "-ERR invalid argument count\r\n";
+    }
+
+    int = kv.expire(cmd.args[0], cmd.args[1]);
+    return "+OK\r\n";
+}
 
 std::string handleUnimplemented(const RespParser::Command& cmd, KeyValueStore &kv) {
     return "-ERR not implemented\r\n";
@@ -57,6 +65,7 @@ const std::unordered_map<RespParser::CommandType, Handler> kHandlers = {
     {RespParser::CommandType::Set,  handleSet},
     {RespParser::CommandType::Get,  handleGet},
     {RespParser::CommandType::Del,  handleDel},
+{RespParser::CommandType::Expire,  handleExpire},
 };
 
 } // namespace

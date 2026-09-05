@@ -24,7 +24,7 @@ public:
         Get,
         Del,
         // Exists,
-        // Expire,
+        Expire,
         // Ttl,
         Unknown
     };

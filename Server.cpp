@@ -39,6 +39,12 @@ void Server::handleClient(int client_fd) {
     close(client_fd);
 }
 
+void Server::handleExpiration() { //thread function
+    while (true) {
+        kv_.purgeExpired();
+    }
+}
+
 
 
 int Server::run() {
@@ -55,6 +61,8 @@ int Server::run() {
     listen(server_fd, 5); // 5 = backlog size
 
     std::cout << "Listening on port " << server_port_ << "...\n";
+
+    std::thread(&Server::handleExpiration, this).detach();
 
     while (true) {
         int client_fd = accept(server_fd, nullptr, nullptr);

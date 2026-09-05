@@ -1,4 +1,5 @@
 #include "Dispatcher.h"
+#include <charconv>
 #include <functional>
 #include <mutex>
 #include <unordered_map>
@@ -50,8 +51,26 @@ std::string handleExpire(const RespParser::Command& cmd, KeyValueStore &kv) {
         return "-ERR invalid argument count\r\n";
     }
 
-    int = kv.expire(cmd.args[0], cmd.args[1]);
-    return "+OK\r\n";
+    int seconds = 0;
+    auto [ptr, ec] = std::from_chars(cmd.args[1].data(), cmd.args[1].data() + cmd.args[1].size(), seconds);
+    if (ec != std::errc()) {
+        return "-ERR value is not an integer or out of range\r\n";
+    }
+
+    int result = kv.expire(cmd.args[0], seconds);
+    return ":" + std::to_string(result) + "\r\n";
+}
+
+std::string handleTtl(const RespParser::Command& cmd, KeyValueStore &kv) {
+    if (cmd.args.size() != 1) {
+        return "-ERR invalid argument count\r\n";
+    }
+
+    std::optional<long long> result = kv.ttl(cmd.args[0]);
+    if (!result.has_value()) {
+        return ":-2\r\n";
+    }
+    return ":" + std::to_string(*result) + "\r\n";
 }
 
 std::string handleUnimplemented(const RespParser::Command& cmd, KeyValueStore &kv) {
@@ -66,6 +85,7 @@ const std::unordered_map<RespParser::CommandType, Handler> kHandlers = {
     {RespParser::CommandType::Get,  handleGet},
     {RespParser::CommandType::Del,  handleDel},
 {RespParser::CommandType::Expire,  handleExpire},
+    {RespParser::CommandType::Ttl,     handleTtl},
 };
 
 } // namespace

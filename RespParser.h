@@ -25,7 +25,7 @@ public:
         Del,
         // Exists,
         Expire,
-        // Ttl,
+        Ttl,
         Unknown
     };
 

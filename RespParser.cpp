@@ -41,6 +41,8 @@ RespParser::CommandType RespParser::parseType(const std::string& word) {
     if (upper == "SET")  return CommandType::Set;
     if (upper == "GET")  return CommandType::Get;
     if (upper == "DEL")  return CommandType::Del;
+    if (upper == "EXPIRE") return CommandType::Expire;
+    if (upper == "TTL")    return CommandType::Ttl;
 
     return CommandType::Unknown;
 }

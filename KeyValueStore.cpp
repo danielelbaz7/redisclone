@@ -36,4 +36,21 @@ int KeyValueStore::expire(const std::string &key, int seconds) {
     return 1;
 }
 
+std::optional<long long> KeyValueStore::ttl(const std::string &key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!store.contains(key)) {
+        return std::nullopt; // key doesn't exist -> caller replies -2
+    }
+
+    std::lock_guard<std::mutex> lockExpiry(expire_mutex_);
+    auto it = expirations.find(key);
+    if (it == expirations.end()) {
+        return -1; // key exists but has no expiry set
+    }
+
+    auto remaining = std::chrono::duration_cast<std::chrono::seconds>(
+        it->second - std::chrono::steady_clock::now()).count();
+    return remaining > 0 ? remaining : 0;
+}
+
 

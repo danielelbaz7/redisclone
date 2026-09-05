@@ -4,6 +4,7 @@
 
 #include "Server.h"
 #include <arpa/inet.h>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <sys/socket.h>
@@ -41,6 +42,7 @@ void Server::handleClient(int client_fd) {
 
 void Server::handleExpiration() { //thread function
     while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
         kv_.purgeExpired();
     }
 }

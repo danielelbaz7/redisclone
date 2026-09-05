@@ -23,7 +23,6 @@ private:
     std::unordered_map<std::string, std::string> store;
     std::unordered_map<std::string, std::chrono::time_point<std::chrono::steady_clock>> expirations;
     std::mutex mutex_;
-    std::mutex expire_mutex_;
 
 };
 

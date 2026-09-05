@@ -20,7 +20,12 @@ void KeyValueStore::set(const std::string &key, std::string value) {
 
 int KeyValueStore::del(const std::string &key) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return store.erase(key) > 0;
+    int result = store.erase(key);
+    if (result > 0) {
+        expirations.erase(key);
+        return true;
+    }
+    return false;
 }
 
 int KeyValueStore::expire(const std::string &key, int seconds) {
@@ -31,7 +36,6 @@ int KeyValueStore::expire(const std::string &key, int seconds) {
         return 0;
     }
 
-    std::lock_guard<std::mutex> lockExpiry(expire_mutex_);
     expirations[key] = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     return 1;
 }
@@ -42,7 +46,6 @@ std::optional<long long> KeyValueStore::ttl(const std::string &key) {
         return std::nullopt; // key doesn't exist -> caller replies -2
     }
 
-    std::lock_guard<std::mutex> lockExpiry(expire_mutex_);
     auto it = expirations.find(key);
     if (it == expirations.end()) {
         return -1; // key exists but has no expiry set
@@ -55,7 +58,6 @@ std::optional<long long> KeyValueStore::ttl(const std::string &key) {
 
 void KeyValueStore::purgeExpired() {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::lock_guard<std::mutex> lockExpiry(expire_mutex_);
 
     auto now = std::chrono::steady_clock::now();
     for (auto it = expirations.begin(); it != expirations.end(); ) {

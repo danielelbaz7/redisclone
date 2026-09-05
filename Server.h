@@ -15,6 +15,7 @@ public:
     int run();
 private:
     void handleClient(int client_fd);
+    void handleExpiration(KeyValueStore& kv);
 
     uint16_t server_port_;
     KeyValueStore& kv_;

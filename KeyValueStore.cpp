@@ -53,4 +53,20 @@ std::optional<long long> KeyValueStore::ttl(const std::string &key) {
     return remaining > 0 ? remaining : 0;
 }
 
+void KeyValueStore::purgeExpired() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lockExpiry(expire_mutex_);
+
+    auto now = std::chrono::steady_clock::now();
+    for (auto it = expirations.begin(); it != expirations.end(); ) {
+        if (it->second <= now) {
+            store.erase(it->first);
+            it = expirations.erase(it); // erase() returns the next valid iterator
+        } else {
+            ++it;
+        }
+    }
+}
+
+
 

@@ -18,6 +18,7 @@ public:
     int expire(const std::string &key, int seconds);
     std::optional<long long> ttl(const std::string &key);
     int del(const std::string &key);
+    void purgeExpired();
 private:
     std::unordered_map<std::string, std::string> store;
     std::unordered_map<std::string, std::chrono::time_point<std::chrono::steady_clock>> expirations;

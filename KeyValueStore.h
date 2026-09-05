@@ -29,7 +29,7 @@ private:
 
     std::vector<Shard> shards;
 
-    Shard& findShard(const std::string& key) { //hash key to find shard
+    Shard& findShard(const std::string& key) { //will be used in every function, split the kvstore up into shards
         return shards[std::hash<std::string>{}(key) % shards.size()];
     }
 

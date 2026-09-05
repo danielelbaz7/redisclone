@@ -15,40 +15,44 @@ std::optional<std::string> KeyValueStore::get(const std::string &key) {
 }
 
 void KeyValueStore::set(const std::string &key, std::string value) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    store[key] = value;
+    Shard& shard = findShard(key);
+    std::lock_guard<std::mutex> lock(shard.mutex_);
+    shard.store[key] = value;
 }
 
 int KeyValueStore::del(const std::string &key) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    int result = store.erase(key);
+    Shard& shard = findShard(key);
+    std::lock_guard<std::mutex> lock(shard.mutex_);
+    int result = shard.store.erase(key);
     if (result > 0) {
-        expirations.erase(key);
+        shard.expirations.erase(key);
         return true;
     }
     return false;
 }
 
 int KeyValueStore::expire(const std::string &key, int seconds) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    bool key_in_store = store.contains(key);
+    Shard& shard = findShard(key);
+    std::lock_guard<std::mutex> lock(shard.mutex_);
+    bool key_in_store = shard.store.contains(key);
 
     if (!key_in_store) {
         return 0;
     }
 
-    expirations[key] = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    shard.expirations[key] = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     return 1;
 }
 
 std::optional<long long> KeyValueStore::ttl(const std::string &key) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!store.contains(key)) {
+    Shard& shard = findShard(key);
+    std::lock_guard<std::mutex> lock(shard.mutex_);
+    if (!shard.store.contains(key)) {
         return std::nullopt; // key doesn't exist -> caller replies -2
     }
 
-    auto it = expirations.find(key);
-    if (it == expirations.end()) {
+    auto it = shard.expirations.find(key);
+    if (it == shard.expirations.end()) {
         return -1; // key exists but has no expiry set
     }
 
@@ -58,15 +62,16 @@ std::optional<long long> KeyValueStore::ttl(const std::string &key) {
 }
 
 void KeyValueStore::purgeExpired() {
-    std::lock_guard<std::mutex> lock(mutex_);
-
     auto now = std::chrono::steady_clock::now();
-    for (auto it = expirations.begin(); it != expirations.end(); ) {
-        if (it->second <= now) {
-            store.erase(it->first);
-            it = expirations.erase(it); // erase() returns the next valid iterator
-        } else {
-            ++it;
+    for (Shard& shard : shards) {
+        std::lock_guard<std::mutex> lock(shard.mutex_);
+        for (auto it = shard.expirations.begin(); it != shard.expirations.end(); ) {
+            if (it->second <= now) {
+                shard.store.erase(it->first);
+                it = shard.expirations.erase(it); // erase() returns the next valid iterator
+            } else {
+                ++it;
+            }
         }
     }
 }

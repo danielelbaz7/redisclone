@@ -9,6 +9,7 @@
 #include <optional>
 #include <mutex>
 #include <chrono>
+#include <vector>
 
 
 class KeyValueStore {
@@ -20,9 +21,18 @@ public:
     int del(const std::string &key);
     void purgeExpired();
 private:
-    std::unordered_map<std::string, std::string> store;
-    std::unordered_map<std::string, std::chrono::time_point<std::chrono::steady_clock>> expirations;
-    std::mutex mutex_;
+    struct Shard {
+        std::unordered_map<std::string, std::string> store;
+        std::unordered_map<std::string, std::chrono::time_point<std::chrono::steady_clock>> expirations;
+        std::mutex mutex_;
+    };
+
+    std::vector<Shard> shards;
+
+    Shard& findShard(const std::string& key) { //hash key to find shard
+        return shards[std::hash<std::string>{}(key) % shards.size()];
+    }
+
 
 };
 

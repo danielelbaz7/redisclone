@@ -5,9 +5,10 @@
 #include "KeyValueStore.h"
 
 std::optional<std::string> KeyValueStore::get(const std::string &key) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (store.contains(key)) {
-        return store.at(key);
+    Shard& shard = findShard(key);
+    std::lock_guard<std::mutex> lock(shard.mutex_);
+    if (shard.store.contains(key)) {
+        return shard.store.at(key);
     }
 
     return std::nullopt;

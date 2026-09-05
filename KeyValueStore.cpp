@@ -4,6 +4,9 @@
 
 #include "KeyValueStore.h"
 
+KeyValueStore::KeyValueStore() : shards(16) {};
+
+
 std::optional<std::string> KeyValueStore::get(const std::string &key) {
     Shard& shard = findShard(key);
     std::lock_guard<std::mutex> lock(shard.mutex_);

@@ -14,6 +14,7 @@
 
 class KeyValueStore {
 public:
+    KeyValueStore();
     std::optional<std::string> get(const std::string &key);
     void set(const std::string &key, std::string value);
     int expire(const std::string &key, int seconds);

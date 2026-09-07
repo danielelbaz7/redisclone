@@ -11,4 +11,6 @@ add_executable(redisclone main.cpp
         Dispatcher.cpp
         Dispatcher.h
         KeyValueStore.cpp
-        KeyValueStore.h)
+        KeyValueStore.h
+        AofLog.cpp
+        AofLog.h)

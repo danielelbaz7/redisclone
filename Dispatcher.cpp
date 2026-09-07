@@ -1,4 +1,5 @@
 #include "Dispatcher.h"
+#include "AofLog.h"
 #include <charconv>
 #include <functional>
 #include <mutex>
@@ -17,6 +18,7 @@ std::string handleSet(const RespParser::Command& cmd, KeyValueStore &kv) {
     }
 
     kv.set(cmd.args[0], cmd.args[1]);
+    appendToAof("SET " + cmd.args[0] + " " + cmd.args[1]);
     return "+OK\r\n";
 }
 
@@ -38,11 +40,14 @@ std::string handleGet(const RespParser::Command& cmd, KeyValueStore &kv) {
 
 std::string handleDel(const RespParser::Command& cmd, KeyValueStore &kv) {
     int deleted = 0;
+    std::string line = "DEL";
     for (std::string w : cmd.args) {
         if (kv.del(w)) {
             deleted++;
         }
+        line += " " + w;
     }
+    appendToAof(line);
     return ":" + std::to_string(deleted) + "\r\n";
 }
 
@@ -58,6 +63,7 @@ std::string handleExpire(const RespParser::Command& cmd, KeyValueStore &kv) {
     }
 
     int result = kv.expire(cmd.args[0], seconds);
+    appendToAof("EXPIRE " + cmd.args[0] + " " + cmd.args[1]);
     return ":" + std::to_string(result) + "\r\n";
 }
 

@@ -7,8 +7,6 @@
 #include <vector>
 #include <optional>
 
-#include "KeyValueStore.h"
-
 #ifndef REDISCLONE_RESPPARSER_H
 #define REDISCLONE_RESPPARSER_H
 

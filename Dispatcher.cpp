@@ -18,7 +18,7 @@ std::string handleSet(const RespParser::Command& cmd, KeyValueStore &kv) {
     }
 
     kv.set(cmd.args[0], cmd.args[1]);
-    appendToAof("SET " + cmd.args[0] + " " + cmd.args[1]);
+    appendToAof("SET", cmd.args);
     return "+OK\r\n";
 }
 

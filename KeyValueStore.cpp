@@ -20,6 +20,7 @@ std::optional<std::string> KeyValueStore::get(const std::string &key) {
 void KeyValueStore::set(const std::string &key, std::string value) {
     Shard& shard = findShard(key);
     std::lock_guard<std::mutex> lock(shard.mutex_);
+    aof_.appendToAof("SET", key, value);
     shard.store[key] = value;
 }
 
@@ -28,6 +29,7 @@ int KeyValueStore::del(const std::string &key) {
     std::lock_guard<std::mutex> lock(shard.mutex_);
     int result = shard.store.erase(key);
     if (result > 0) {
+        aof_.appendToAof("DEL", key, std::nullopt);
         shard.expirations.erase(key);
         return true;
     }
@@ -43,6 +45,7 @@ int KeyValueStore::expire(const std::string &key, int seconds) {
         return 0;
     }
 
+    aof_.appendToAof("EXPIRE", key, std::to_string(seconds));
     shard.expirations[key] = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     return 1;
 }

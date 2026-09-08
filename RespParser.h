@@ -10,7 +10,7 @@
 #ifndef REDISCLONE_RESPPARSER_H
 #define REDISCLONE_RESPPARSER_H
 
-
+class KeyValueStore;
 
 class RespParser {
 public:

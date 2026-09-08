@@ -3,14 +3,14 @@
 
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <string>
-#include <vector>
 
-std::string encodeRespCommand(const std::string& commandType, const std::vector<std::string>& args);
+std::string encodeRespCommand(const std::string& commandType, const std::string& key, const std::optional<std::string>& value);
 
 class AofLog {
 public:
-    void appendToAof(const std::string& commandType, const std::vector<std::string>& args);
+    void appendToAof(const std::string& commandType, const std::string& key, const std::optional<std::string>& value);
 private:
     std::ofstream aofFile{"appendonly.aof", std::ios::app};
     std::mutex aofMutex;

@@ -18,7 +18,6 @@ std::string handleSet(const RespParser::Command& cmd, KeyValueStore &kv) {
     }
 
     kv.set(cmd.args[0], cmd.args[1]);
-    appendToAof("SET", cmd.args);
     return "+OK\r\n";
 }
 
@@ -47,7 +46,6 @@ std::string handleDel(const RespParser::Command& cmd, KeyValueStore &kv) {
         }
         line += " " + w;
     }
-    appendToAof(line);
     return ":" + std::to_string(deleted) + "\r\n";
 }
 
@@ -63,7 +61,6 @@ std::string handleExpire(const RespParser::Command& cmd, KeyValueStore &kv) {
     }
 
     int result = kv.expire(cmd.args[0], seconds);
-    appendToAof("EXPIRE " + cmd.args[0] + " " + cmd.args[1]);
     return ":" + std::to_string(result) + "\r\n";
 }
 

@@ -1,16 +1,18 @@
 #include "AofLog.h"
 
-std::string encodeRespCommand(const std::string& commandType, const std::vector<std::string>& args) {
-    std::string encoded = "*" + std::to_string(args.size() + 1) + "\r\n";
+std::string encodeRespCommand(const std::string& commandType, const std::string& key, const std::optional<std::string>& value) {
+    int argCount = value.has_value() ? 3 : 2;
+    std::string encoded = "*" + std::to_string(argCount) + "\r\n";
     encoded += "$" + std::to_string(commandType.size()) + "\r\n" + commandType + "\r\n";
-    for (const auto& arg : args) {
-        encoded += "$" + std::to_string(arg.size()) + "\r\n" + arg + "\r\n";
+    encoded += "$" + std::to_string(key.size()) + "\r\n" + key + "\r\n";
+    if (value.has_value()) {
+        encoded += "$" + std::to_string(value->size()) + "\r\n" + *value + "\r\n";
     }
     return encoded;
 }
 
-void AofLog::appendToAof(const std::string& commandType, const std::vector<std::string>& args) {
-    std::string encoded = encodeRespCommand(commandType, args);
+void AofLog::appendToAof(const std::string& commandType, const std::string& key, const std::optional<std::string>& value) {
+    std::string encoded = encodeRespCommand(commandType, key, value);
 
     std::lock_guard<std::mutex> lock(aofMutex);
     aofFile << encoded;

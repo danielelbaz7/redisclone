@@ -45,7 +45,11 @@ int KeyValueStore::expire(const std::string &key, int seconds) {
         return 0;
     }
 
-    aof_.appendToAof("EXPIRE", key, std::to_string(seconds));
+    auto deadline = std::chrono::system_clock::now() + std::chrono::seconds(seconds);
+    long long epochSeconds = std::chrono::duration_cast<std::chrono::seconds>(
+        deadline.time_since_epoch()).count();
+    aof_.appendToAof("EXPIREAT", key, std::to_string(epochSeconds));
+
     shard.expirations[key] = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     return 1;
 }

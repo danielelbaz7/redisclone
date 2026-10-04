@@ -36,6 +36,10 @@ private:
         return shards[std::hash<std::string>{}(key) % shards.size()];
     }
 
+    // mutate only, never logs to the AOF — used by set/del/expire AND by replay
+    void applySet(const std::string &key, const std::string &value);
+    int applyDel(const std::string &key);
+    int applyExpire(const std::string &key, int seconds);
 
 };
 

@@ -71,6 +71,18 @@ std::optional<long long> KeyValueStore::ttl(const std::string &key) {
     return remaining > 0 ? remaining : 0;
 }
 
+void KeyValueStore::applySet(const std::string &key, const std::string &value) {
+
+}
+
+int KeyValueStore::applyDel(const std::string &key) {
+
+}
+
+int KeyValueStore::applyExpire(const std::string &key, int seconds) {
+
+}
+
 void KeyValueStore::purgeExpired() {
     auto now = std::chrono::steady_clock::now();
     for (Shard& shard : shards) {

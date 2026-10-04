@@ -1,5 +1,7 @@
 #include "AofLog.h"
 
+#include <sstream>
+
 std::string encodeRespCommand(const std::string& commandType, const std::string& key, const std::optional<std::string>& value) {
     int argCount = value.has_value() ? 3 : 2;
     std::string encoded = "*" + std::to_string(argCount) + "\r\n";
@@ -17,4 +19,12 @@ void AofLog::appendToAof(const std::string& commandType, const std::string& key,
     std::lock_guard<std::mutex> lock(aofMutex);
     aofFile << encoded;
     aofFile.flush();
+}
+
+std::string AofLog::readAll() {
+    std::ifstream in("appendonly.aof");
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
+
 }

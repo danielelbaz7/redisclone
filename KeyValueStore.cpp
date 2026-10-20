@@ -24,16 +24,25 @@ void KeyValueStore::set(const std::string &key, std::string value) {
     shard.store[key] = value;
 }
 
-int KeyValueStore::del(const std::string &key) {
+
+int KeyValueStore::applyDel(const std::string &key) { //exists for reading from aof
     Shard& shard = findShard(key);
     std::lock_guard<std::mutex> lock(shard.mutex_);
     int result = shard.store.erase(key);
     if (result > 0) {
-        aof_.appendToAof("DEL", key, std::nullopt);
         shard.expirations.erase(key);
         return true;
     }
     return false;
+}
+
+int KeyValueStore::del(const std::string &key) {
+    int result = applyDel(key);
+    if (result > 0) {
+        aof_.appendToAof("DEL", key, std::nullopt);
+        return 1;
+    }
+    return 0;
 }
 
 int KeyValueStore::expire(const std::string &key, int seconds) {
@@ -72,10 +81,6 @@ std::optional<long long> KeyValueStore::ttl(const std::string &key) {
 }
 
 void KeyValueStore::applySet(const std::string &key, const std::string &value) {
-
-}
-
-int KeyValueStore::applyDel(const std::string &key) {
 
 }
 

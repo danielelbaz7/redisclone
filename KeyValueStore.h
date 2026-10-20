@@ -15,7 +15,7 @@
 
 class KeyValueStore {
 public:
-    KeyValueStore();
+    explicit KeyValueStore(const std::string &aofPath = "appendonly.aof");
     std::optional<std::string> get(const std::string &key);
     void set(const std::string &key, std::string value);
     int expire(const std::string &key, int seconds);
@@ -36,10 +36,12 @@ private:
         return shards[std::hash<std::string>{}(key) % shards.size()];
     }
 
-    // mutate only, never logs to the AOF — used by set/del/expire AND by replay
-    void applySet(const std::string &key, const std::string &value);
-    int applyDel(const std::string &key);
-    int applyExpire(const std::string &key, int seconds);
+    // mutate only, never logs to the AOF — used by set/del AND by replay. caller must hold shard.mutex_
+    void applySet(Shard &shard, const std::string &key, const std::string &value);
+    int applyDel(Shard &shard, const std::string &key);
+    int applyExpireAt(Shard &shard, const std::string &key, long long epochSeconds);
+
+    void replayAof();
 
 };
 

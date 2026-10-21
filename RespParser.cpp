@@ -17,6 +17,8 @@ void RespParser::parseAndDispatchCommands(std::function<void(const std::string&)
         ParseResult result = parseCommand(); //stores status and command
         if (result.status == ParseStatus::Invalid) {
             std::cout << "Invalid command." << std::endl;
+            persistent_buffer_.clear(); // otherwise the bad bytes stay at the front and every later read fails on them
+            onReply("-ERR Protocol error\r\n");
             break;
         }
         if (result.status == ParseStatus::Incomplete) {

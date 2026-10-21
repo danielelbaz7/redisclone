@@ -480,6 +480,16 @@ void testParserSplitValueContainingCrlf() {
     }
 }
 
+void testParserRecoversAfterInvalidCommand() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    RespParser parser;
+    auto bad = sendRaw(parser, kv, "hello\r\n");
+    CHECK((bad == std::vector<std::string>{"-ERR Protocol error\r\n"}));
+    auto good = sendRaw(parser, kv, "*1\r\n$4\r\nPING\r\n"); // used to fail forever after a bad command
+    CHECK((good == std::vector<std::string>{"+PONG\r\n"}));
+}
+
 void testEndToEndRecoveryThroughParser() {
     TempAof aof;
     {
@@ -669,6 +679,7 @@ const TestCase kTests[] = {
     {"parser command split at every byte", testParserCommandSplitAtEveryByte},
     {"parser pipelined one byte at a time", testParserPipelinedOneByteAtATime},
     {"parser split value containing crlf", testParserSplitValueContainingCrlf},
+    {"parser recovers after invalid command", testParserRecoversAfterInvalidCommand},
     {"end to end recovery through parser", testEndToEndRecoveryThroughParser},
     {"replica gets every write", testReplicaGetsEveryWrite},
     {"replica stream matches aof", testReplicaStreamMatchesAof},

@@ -27,7 +27,7 @@ void Server::handleClient(int client_fd) {
             parser.append(buffer, bytes_received);
             parser.parseAndDispatchCommands([&](const std::string& reply) {
                 send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
-            }, kv_); //lambda that sends the reply to the client
+            }, kv_, client_fd); //lambda that sends the reply to the client
         }
         else if (bytes_received == 0) {
             std::cout << "Client disconnected\n";
@@ -38,6 +38,7 @@ void Server::handleClient(int client_fd) {
             break;
         }
     }
+    kv_.replicas().remove(client_fd); //no-op for normal clients. must happen before close or a new client could reuse the fd
     close(client_fd);
 }
 

@@ -13,6 +13,11 @@ KeyValueStore::KeyValueStore(const std::string &aofPath) : shards(16), aof_(aofP
 }
 
 
+void KeyValueStore::logWrite(const std::string &commandType, const std::string &key, const std::optional<std::string> &value) {
+    aof_.appendToAof(commandType, key, value);
+    replicas_.broadcast(encodeRespCommand(commandType, key, value));
+}
+
 std::optional<std::string> KeyValueStore::get(const std::string &key) {
     Shard& shard = findShard(key);
     std::lock_guard<std::mutex> lock(shard.mutex_);
@@ -26,7 +31,7 @@ std::optional<std::string> KeyValueStore::get(const std::string &key) {
 void KeyValueStore::set(const std::string &key, std::string value) {
     Shard& shard = findShard(key);
     std::lock_guard<std::mutex> lock(shard.mutex_);
-    aof_.appendToAof("SET", key, value);
+    logWrite("SET", key, value);
     applySet(shard, key, value);
 }
 
@@ -45,7 +50,7 @@ int KeyValueStore::del(const std::string &key) {
     std::lock_guard<std::mutex> lock(shard.mutex_); // log under the lock so aof order matches apply order
     int result = applyDel(shard, key);
     if (result > 0) {
-        aof_.appendToAof("DEL", key, std::nullopt);
+        logWrite("DEL", key, std::nullopt);
         return 1;
     }
     return 0;
@@ -63,7 +68,7 @@ int KeyValueStore::expire(const std::string &key, int seconds) {
     auto deadline = std::chrono::system_clock::now() + std::chrono::seconds(seconds);
     long long epochSeconds = std::chrono::duration_cast<std::chrono::seconds>(
         deadline.time_since_epoch()).count();
-    aof_.appendToAof("EXPIREAT", key, std::to_string(epochSeconds));
+    logWrite("EXPIREAT", key, std::to_string(epochSeconds));
 
     shard.expirations[key] = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     return 1;

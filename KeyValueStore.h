@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "AofLog.h"
+#include "ReplicaSet.h"
 
 class KeyValueStore {
 public:
@@ -22,6 +23,7 @@ public:
     std::optional<long long> ttl(const std::string &key);
     int del(const std::string &key);
     void purgeExpired();
+    ReplicaSet& replicas() { return replicas_; }
 private:
     struct Shard {
         std::unordered_map<std::string, std::string> store;
@@ -31,6 +33,10 @@ private:
 
     std::vector<Shard> shards;
     AofLog aof_;
+    ReplicaSet replicas_;
+
+    // every write goes through here: appended to the aof and sent to replicas
+    void logWrite(const std::string &commandType, const std::string &key, const std::optional<std::string> &value);
 
     Shard& findShard(const std::string& key) { //will be used in every function, split the kvstore up into shards
         return shards[std::hash<std::string>{}(key) % shards.size()];

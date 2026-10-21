@@ -4,6 +4,7 @@
 #include <functional>
 #include <iostream>
 #include <mutex>
+#include <sys/socket.h>
 #include <unordered_map>
 
 namespace {
@@ -77,10 +78,16 @@ std::string handleTtl(const RespParser::Command& cmd, KeyValueStore &kv) {
     return ":" + std::to_string(*result) + "\r\n";
 }
 
-std::string handleReplSync(const RespParser::Command& cmd, KeyValueStore &kv) {
-    //a replica is connecting. later this will send it the data and register it for streaming
+std::string handleReplSync(KeyValueStore &kv, int client_fd) {
+    //a replica is connecting, from now on every write is also sent to this socket
+    if (client_fd < 0) {
+        return "-ERR REPLSYNC needs a connection\r\n";
+    }
+    std::string ok = "+OK\r\n";
+    send(client_fd, ok.data(), ok.size(), 0); //reply before registering so +OK comes before any streamed write
+    kv.replicas().add(client_fd);
     std::cout << "Replica connected\n";
-    return "+OK\r\n";
+    return ""; //already replied
 }
 
 std::string handleUnimplemented(const RespParser::Command& cmd, KeyValueStore &kv) {
@@ -96,12 +103,14 @@ const std::unordered_map<RespParser::CommandType, Handler> kHandlers = {
     {RespParser::CommandType::Del,  handleDel},
 {RespParser::CommandType::Expire,  handleExpire},
     {RespParser::CommandType::Ttl,     handleTtl},
-    {RespParser::CommandType::ReplSync, handleReplSync},
 };
 
 } // namespace
 
-std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv) {
+std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, int client_fd) {
+    if (cmd.name == RespParser::CommandType::ReplSync) { //only command that needs the socket
+        return handleReplSync(kv, client_fd);
+    }
     auto it = kHandlers.find(cmd.name);
     if (it == kHandlers.end()) {
         return "-ERR unknown command\r\n";

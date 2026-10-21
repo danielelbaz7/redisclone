@@ -1,12 +1,14 @@
 // plain test runner, no framework: each test is a function, CHECK records failures and keeps going
 
 #include <atomic>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
 #include <vector>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include "AofLog.h"
@@ -453,6 +455,109 @@ void testEndToEndRecoveryThroughParser() {
     CHECK(kv.ttl("user").value() >= 498);
 }
 
+// ---------- replication ----------
+
+// a connected pair of sockets: [0] plays the primary's end, [1] plays the replica's end
+struct FakeReplica {
+    int fds[2]{-1, -1};
+    FakeReplica() { socketpair(AF_UNIX, SOCK_STREAM, 0, fds); }
+    ~FakeReplica() { close(fds[0]); if (fds[1] >= 0) close(fds[1]); }
+
+    std::string readAvailable() { // everything sent so far, without blocking
+        std::string out;
+        char buffer[4096];
+        ssize_t n;
+        while ((n = recv(fds[1], buffer, sizeof(buffer), MSG_DONTWAIT)) > 0) out.append(buffer, n);
+        return out;
+    }
+};
+
+void testReplicaGetsEveryWrite() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    FakeReplica replica;
+    kv.replicas().add(replica.fds[0]);
+    kv.set("k", "v");
+    kv.expire("k", 100);
+    kv.del("k");
+    std::size_t valid = 0;
+    auto commands = decodeRespCommands(replica.readAvailable(), valid);
+    CHECK(commands.size() == 3);
+    CHECK((commands[0] == std::vector<std::string>{"SET", "k", "v"}));
+    CHECK(commands[1][0] == "EXPIREAT");
+    CHECK((commands[2] == std::vector<std::string>{"DEL", "k"}));
+}
+
+void testReplicaStreamMatchesAof() {
+    TempAof aof;
+    FakeReplica replica;
+    {
+        KeyValueStore kv{aof.path};
+        kv.replicas().add(replica.fds[0]);
+        kv.set("a", "1");
+        kv.set("b", "2");
+        kv.del("a");
+        kv.del("missing"); // not a write, sent nowhere
+    }
+    CHECK(replica.readAvailable() == readRaw(aof.path));
+}
+
+void testReadsAreNotSentToReplica() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    kv.set("k", "v");
+    FakeReplica replica;
+    kv.replicas().add(replica.fds[0]);
+    kv.get("k");
+    kv.ttl("k");
+    kv.expire("missing", 10);
+    CHECK(replica.readAvailable().empty());
+}
+
+void testRemovedReplicaGetsNothing() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    FakeReplica replica;
+    kv.replicas().add(replica.fds[0]);
+    kv.replicas().remove(replica.fds[0]);
+    kv.set("k", "v");
+    CHECK(replica.readAvailable().empty());
+}
+
+void testDeadReplicaIsDroppedAndOthersStillGetWrites() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    FakeReplica dead, alive;
+    kv.replicas().add(dead.fds[0]);
+    kv.replicas().add(alive.fds[0]);
+    close(dead.fds[1]); // replica went away
+    dead.fds[1] = -1;
+    kv.set("a", "1"); // must not crash (SIGPIPE) and must still reach the live one
+    kv.set("b", "2");
+    std::size_t valid = 0;
+    CHECK(decodeRespCommands(alive.readAvailable(), valid).size() == 2);
+    CHECK(kv.get("b") == "2");
+}
+
+void testReplSyncRegistersConnection() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    FakeReplica replica;
+    RespParser parser;
+    std::string bytes = "*1\r\n$8\r\nREPLSYNC\r\n";
+    std::vector<std::string> replies;
+    parser.append(bytes.data(), bytes.size());
+    parser.parseAndDispatchCommands([&](const std::string& r) { replies.push_back(r); }, kv, replica.fds[0]);
+    kv.set("k", "v");
+    CHECK(replica.readAvailable() == "+OK\r\n" + encodeRespCommand("SET", "k", "v")); // +OK first, then the stream
+}
+
+void testReplSyncWithoutConnectionErrors() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    CHECK(executeCommand(cmd(RespParser::CommandType::ReplSync), kv) == "-ERR REPLSYNC needs a connection\r\n");
+}
+
 struct TestCase {
     const char* name;
     void (*fn)();
@@ -497,11 +602,19 @@ const TestCase kTests[] = {
     {"parser pipelined", testParserPipelined},
     {"parser case insensitive", testParserCaseInsensitive},
     {"end to end recovery through parser", testEndToEndRecoveryThroughParser},
+    {"replica gets every write", testReplicaGetsEveryWrite},
+    {"replica stream matches aof", testReplicaStreamMatchesAof},
+    {"reads are not sent to replica", testReadsAreNotSentToReplica},
+    {"removed replica gets nothing", testRemovedReplicaGetsNothing},
+    {"dead replica is dropped and others still get writes", testDeadReplicaIsDroppedAndOthersStillGetWrites},
+    {"replsync registers connection", testReplSyncRegistersConnection},
+    {"replsync without connection errors", testReplSyncWithoutConnectionErrors},
 };
 
 } // namespace
 
 int main() {
+    std::signal(SIGPIPE, SIG_IGN); // same as the server, so a dead replica test doesn't kill the run
     int failedTests = 0;
     for (const TestCase& test : kTests) {
         int before = failures;

@@ -1,3 +1,4 @@
+#include <csignal>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -9,6 +10,8 @@
 //   ./redisclone --port 6379 --aof primary.aof
 //   ./redisclone --port 6380 --aof replica.aof --replicaof 127.0.0.1 6379
 int main(int argc, char* argv[]) {
+    std::signal(SIGPIPE, SIG_IGN); //send() to a dead replica/client returns an error instead of killing the server
+
     uint16_t port = 6379;
     std::string aofPath = "appendonly.aof";
     std::optional<ReplicaOf> primary;

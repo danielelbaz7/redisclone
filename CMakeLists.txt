@@ -14,7 +14,9 @@ add_library(redisclone_core
         KeyValueStore.cpp
         KeyValueStore.h
         AofLog.cpp
-        AofLog.h)
+        AofLog.h
+        ReplicaSet.cpp
+        ReplicaSet.h)
 target_include_directories(redisclone_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(redisclone_core PUBLIC Threads::Threads)
 

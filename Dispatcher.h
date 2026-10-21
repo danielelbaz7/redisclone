@@ -6,6 +6,6 @@
 
 #include "KeyValueStore.h"
 
-std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv);
+std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, int client_fd = -1);
 
 #endif //REDISCLONE_DISPATCHER_H

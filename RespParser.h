@@ -46,7 +46,7 @@ public:
 
     CommandType parseType(const std::string& word);
 
-    void parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv);
+    void parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv, int client_fd = -1);
 
 private:
     std::string persistent_buffer_{};

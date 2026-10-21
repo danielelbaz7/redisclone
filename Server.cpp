@@ -27,9 +27,13 @@ void Server::handleClient(int client_fd) {
             std::cout << "Received: " << buffer << '\n';
             std::cout << "Received " << bytes_received << " bytes\n";
             parser.append(buffer, bytes_received);
-            parser.parseAndDispatchCommands([&](const std::string& reply) {
+            bool stream_ok = parser.parseAndDispatchCommands([&](const std::string& reply) {
                 send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
             }, kv_, client_fd, &replicas_); //lambda that sends the reply to the client
+            if (!stream_ok) {
+                std::cout << "Protocol error, closing client\n";
+                break;
+            }
         }
         else if (bytes_received == 0) {
             std::cout << "Client disconnected\n";

@@ -47,7 +47,8 @@ public:
 
     CommandType parseType(const std::string& word);
 
-    void parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv, int client_fd = -1, ReplicaSet* replicas = nullptr);
+    // returns false on a protocol error, the caller should close the connection since the stream can't be trusted anymore
+    bool parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv, int client_fd = -1, ReplicaSet* replicas = nullptr);
 
 private:
     std::string persistent_buffer_{};

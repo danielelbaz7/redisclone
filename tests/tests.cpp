@@ -480,14 +480,25 @@ void testParserSplitValueContainingCrlf() {
     }
 }
 
-void testParserRecoversAfterInvalidCommand() {
+void testParserInvalidCommandAsksToClose() {
     TempAof aof;
     KeyValueStore kv{aof.path};
     RespParser parser;
-    auto bad = sendRaw(parser, kv, "hello\r\n");
-    CHECK((bad == std::vector<std::string>{"-ERR Protocol error\r\n"}));
-    auto good = sendRaw(parser, kv, "*1\r\n$4\r\nPING\r\n"); // used to fail forever after a bad command
-    CHECK((good == std::vector<std::string>{"+PONG\r\n"}));
+    std::vector<std::string> replies;
+    auto collect = [&](const std::string& r) { replies.push_back(r); };
+
+    std::string good = "*1\r\n$4\r\nPING\r\n*1\r\n$4";
+    parser.append(good.data(), good.size());
+    CHECK(parser.parseAndDispatchCommands(collect, kv)); // complete + incomplete are both fine
+
+    TempAof aof2;
+    KeyValueStore kv2{aof2.path};
+    RespParser badParser;
+    std::string bad = "hello\r\n";
+    badParser.append(bad.data(), bad.size());
+    replies.clear();
+    CHECK(!badParser.parseAndDispatchCommands(collect, kv2)); // caller should close the connection
+    CHECK((replies == std::vector<std::string>{"-ERR Protocol error\r\n"}));
 }
 
 void testEndToEndRecoveryThroughParser() {
@@ -679,7 +690,7 @@ const TestCase kTests[] = {
     {"parser command split at every byte", testParserCommandSplitAtEveryByte},
     {"parser pipelined one byte at a time", testParserPipelinedOneByteAtATime},
     {"parser split value containing crlf", testParserSplitValueContainingCrlf},
-    {"parser recovers after invalid command", testParserRecoversAfterInvalidCommand},
+    {"parser invalid command asks to close", testParserInvalidCommandAsksToClose},
     {"end to end recovery through parser", testEndToEndRecoveryThroughParser},
     {"replica gets every write", testReplicaGetsEveryWrite},
     {"replica stream matches aof", testReplicaStreamMatchesAof},

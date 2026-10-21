@@ -25,6 +25,7 @@ private:
     void handleClient(int client_fd);
     void handleExpiration();
     void connectToPrimary();
+    void replicateFrom(int primary_fd);
 
     uint16_t server_port_;
     KeyValueStore& kv_;

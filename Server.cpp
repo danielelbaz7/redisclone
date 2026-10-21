@@ -77,25 +77,40 @@ void Server::handleExpiration() { //thread function
     }
 }
 
-void Server::connectToPrimary() { //replica side, we act as a client of the primary
-    int primary_fd = socket(AF_INET, SOCK_STREAM, 0);
-
+void Server::connectToPrimary() { //replica side, keeps a link to the primary and reconnects whenever it drops
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_port = htons(primary_->port);
     if (inet_pton(AF_INET, primary_->host.c_str(), &address.sin_addr) != 1) { //"127.0.0.1" -> 4 bytes
-        std::cerr << "Invalid primary address " << primary_->host << '\n';
-        close(primary_fd);
+        std::cerr << "Invalid primary address " << primary_->host << '\n'; //retrying won't fix a typo
         return;
     }
 
-    if (connect(primary_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-        perror("connect");
-        close(primary_fd);
-        return;
-    }
-    std::cout << "Connected to primary " << primary_->host << ":" << primary_->port << '\n';
+    bool reported_down = false; //only complain once per outage, not every second
+    while (true) {
+        int primary_fd = socket(AF_INET, SOCK_STREAM, 0); //a socket can't be reused after a failed connect, new one each try
+        if (connect(primary_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
+            if (!reported_down) {
+                perror("connect");
+                std::cout << "Primary unreachable, retrying every second\n";
+                reported_down = true;
+            }
+            close(primary_fd);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            continue;
+        }
+        reported_down = false;
+        std::cout << "Connected to primary " << primary_->host << ":" << primary_->port << '\n';
 
+        replicateFrom(primary_fd); //returns when the link drops
+        close(primary_fd);
+
+        std::cout << "Reconnecting to primary\n"; //the next REPLSYNC resends everything, so nothing missed while down is lost
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+
+void Server::replicateFrom(int primary_fd) { //one replication session: handshake, initial sync, then the write stream
     std::string handshake = "*1\r\n$8\r\nREPLSYNC\r\n"; //tells the primary this connection is a replica
     send(primary_fd, handshake.data(), handshake.size(), 0);
 
@@ -106,14 +121,12 @@ void Server::connectToPrimary() { //replica side, we act as a client of the prim
         ssize_t bytes_received = recv(primary_fd, buffer, sizeof(buffer), 0);
         if (bytes_received <= 0) {
             std::cout << "Lost connection to primary\n";
-            close(primary_fd);
             return;
         }
         received.append(buffer, bytes_received);
     }
     if (received.rfind("+OK\r\n", 0) != 0) { //starts with +OK
         std::cerr << "Primary rejected REPLSYNC: " << received << '\n';
-        close(primary_fd);
         return;
     }
     std::cout << "Replicating from primary\n";
@@ -135,9 +148,8 @@ void Server::connectToPrimary() { //replica side, we act as a client of the prim
         stream_ok = dispatchAll(parser, ignoreReply, kv_);
     }
     if (!stream_ok) {
-        std::cerr << "Bad data from primary, stopping replication\n";
+        std::cerr << "Bad data from primary\n";
     }
-    close(primary_fd);
 }
 
 

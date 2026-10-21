@@ -66,6 +66,21 @@ std::string handleExpire(const RespParser::Command& cmd, KeyValueStore &kv) {
     return ":" + std::to_string(result) + "\r\n";
 }
 
+std::string handleExpireAt(const RespParser::Command& cmd, KeyValueStore &kv) {
+    if (cmd.args.size() != 2) {
+        return "-ERR invalid argument count\r\n";
+    }
+
+    long long epochSeconds = 0;
+    auto [ptr, ec] = std::from_chars(cmd.args[1].data(), cmd.args[1].data() + cmd.args[1].size(), epochSeconds);
+    if (ec != std::errc()) {
+        return "-ERR value is not an integer or out of range\r\n";
+    }
+
+    int result = kv.expireAt(cmd.args[0], epochSeconds);
+    return ":" + std::to_string(result) + "\r\n";
+}
+
 std::string handleTtl(const RespParser::Command& cmd, KeyValueStore &kv) {
     if (cmd.args.size() != 1) {
         return "-ERR invalid argument count\r\n";
@@ -102,6 +117,7 @@ const std::unordered_map<RespParser::CommandType, Handler> kHandlers = {
     {RespParser::CommandType::Get,  handleGet},
     {RespParser::CommandType::Del,  handleDel},
 {RespParser::CommandType::Expire,  handleExpire},
+    {RespParser::CommandType::ExpireAt, handleExpireAt},
     {RespParser::CommandType::Ttl,     handleTtl},
 };
 

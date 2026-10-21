@@ -20,6 +20,7 @@ public:
     std::optional<std::string> get(const std::string &key);
     void set(const std::string &key, std::string value);
     int expire(const std::string &key, int seconds);
+    int expireAt(const std::string &key, long long epochSeconds);
     std::optional<long long> ttl(const std::string &key);
     int del(const std::string &key);
     void purgeExpired();

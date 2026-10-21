@@ -1,6 +1,7 @@
 // plain test runner, no framework: each test is a function, CHECK records failures and keeps going
 
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <filesystem>
 #include <fstream>
@@ -403,6 +404,60 @@ void testDispatchCommands() {
     CHECK(executeCommand(cmd(T::Del, {"k", "k2", "missing"}), kv) == ":2\r\n");
 }
 
+void testExpireAt() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    CHECK(kv.expireAt("missing", 99999999999) == 0);
+    kv.set("k", "v");
+    long long inTenMinutes = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 600;
+    CHECK(kv.expireAt("k", inTenMinutes) == 1);
+    long long ttl = kv.ttl("k").value();
+    CHECK(ttl >= 598 && ttl <= 600);
+    CHECK(kv.expireAt("k", 1000) == 1); // in the past, deleted right away
+    CHECK(!kv.get("k").has_value());
+}
+
+void testExpireAtSurvivesRestart() {
+    TempAof aof;
+    long long inTenMinutes = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 600;
+    { KeyValueStore kv{aof.path}; kv.set("k", "v"); kv.expireAt("k", inTenMinutes); }
+    KeyValueStore kv{aof.path};
+    CHECK(kv.ttl("k").value() >= 598);
+}
+
+void testDispatchExpireAt() {
+    using T = RespParser::CommandType;
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    kv.set("k", "v");
+    CHECK(executeCommand(cmd(T::ExpireAt, {"k", "99999999999"}), kv) == ":1\r\n");
+    CHECK(executeCommand(cmd(T::ExpireAt, {"missing", "99999999999"}), kv) == ":0\r\n");
+    CHECK(executeCommand(cmd(T::ExpireAt, {"k", "soon"}), kv) == "-ERR value is not an integer or out of range\r\n");
+    CHECK(executeCommand(cmd(T::ExpireAt, {"k"}), kv) == "-ERR invalid argument count\r\n");
+}
+
+void testReplicaStreamAppliesToAnotherStore() {
+    // what the replica does: feed the primary's broadcast bytes through a parser into its own store
+    TempAof primaryAof, replicaAof;
+    KeyValueStore primary{primaryAof.path};
+    KeyValueStore replica{replicaAof.path};
+    std::string stream;
+    primary.setOnWrite([&](const std::string& encoded) { stream += encoded; });
+    primary.set("a", "1");
+    primary.set("b", "2");
+    primary.expire("b", 100);
+    primary.del("a");
+
+    RespParser parser;
+    parser.append(stream.data(), stream.size());
+    CHECK(parser.parseAndDispatchCommands([](const std::string&) {}, replica));
+    CHECK(!replica.get("a").has_value());
+    CHECK(replica.get("b") == "2");
+    CHECK(replica.ttl("b").value() >= 98);
+}
+
 void testDispatchErrors() {
     using T = RespParser::CommandType;
     TempAof aof;
@@ -683,6 +738,10 @@ const TestCase kTests[] = {
     {"recover concurrent writers", testRecoverConcurrentWriters},
     {"concurrent set/del same key recovers to live state", testConcurrentSetDelSameKeyRecoversToLiveState},
     {"dispatch commands", testDispatchCommands},
+    {"expireat", testExpireAt},
+    {"expireat survives restart", testExpireAtSurvivesRestart},
+    {"dispatch expireat", testDispatchExpireAt},
+    {"replica stream applies to another store", testReplicaStreamAppliesToAnotherStore},
     {"dispatch errors", testDispatchErrors},
     {"parser single command", testParserSingleCommand},
     {"parser pipelined", testParserPipelined},

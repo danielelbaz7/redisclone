@@ -24,6 +24,7 @@ public:
         Del,
         // Exists,
         Expire,
+        ExpireAt,
         Ttl,
         ReplSync,
         Unknown

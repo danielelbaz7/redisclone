@@ -76,6 +76,16 @@ int KeyValueStore::expire(const std::string &key, int seconds) {
     return 1;
 }
 
+int KeyValueStore::expireAt(const std::string &key, long long epochSeconds) { //what the replica gets from the primary
+    Shard& shard = findShard(key);
+    std::lock_guard<std::mutex> lock(shard.mutex_);
+    if (!shard.store.contains(key)) {
+        return 0;
+    }
+    logWrite("EXPIREAT", key, std::to_string(epochSeconds));
+    return applyExpireAt(shard, key, epochSeconds);
+}
+
 std::optional<long long> KeyValueStore::ttl(const std::string &key) {
     Shard& shard = findShard(key);
     std::lock_guard<std::mutex> lock(shard.mutex_);

@@ -77,14 +77,43 @@ void Server::connectToPrimary() { //replica side, we act as a client of the prim
     std::string handshake = "*1\r\n$8\r\nREPLSYNC\r\n"; //tells the primary this connection is a replica
     send(primary_fd, handshake.data(), handshake.size(), 0);
 
-    while (true) { //for now just print whatever the primary sends
+    //the primary answers +OK, then streams writes. read until the +OK line is here
+    std::string received;
+    while (received.find("\r\n") == std::string::npos) {
+        char buffer[1024];
+        ssize_t bytes_received = recv(primary_fd, buffer, sizeof(buffer), 0);
+        if (bytes_received <= 0) {
+            std::cout << "Lost connection to primary\n";
+            close(primary_fd);
+            return;
+        }
+        received.append(buffer, bytes_received);
+    }
+    if (received.rfind("+OK\r\n", 0) != 0) { //starts with +OK
+        std::cerr << "Primary rejected REPLSYNC: " << received << '\n';
+        close(primary_fd);
+        return;
+    }
+    std::cout << "Replicating from primary\n";
+
+    RespParser parser{};
+    auto ignoreReply = [](const std::string&) {}; //never answer the primary, it isn't waiting for replies
+    std::string rest = received.substr(5); //writes that came in the same recv as +OK
+    parser.append(rest.data(), rest.size());
+    bool stream_ok = parser.parseAndDispatchCommands(ignoreReply, kv_);
+
+    while (stream_ok) { //apply every write the primary sends to our own store
         char buffer[1024];
         ssize_t bytes_received = recv(primary_fd, buffer, sizeof(buffer), 0);
         if (bytes_received <= 0) {
             std::cout << "Lost connection to primary\n";
             break;
         }
-        std::cout << "From primary: " << std::string(buffer, bytes_received) << '\n';
+        parser.append(buffer, bytes_received);
+        stream_ok = parser.parseAndDispatchCommands(ignoreReply, kv_);
+    }
+    if (!stream_ok) {
+        std::cerr << "Bad data from primary, stopping replication\n";
     }
     close(primary_fd);
 }

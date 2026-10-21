@@ -441,6 +441,45 @@ void testParserCaseInsensitive() {
     CHECK((replies == std::vector<std::string>{"+PONG\r\n", "+OK\r\n"}));
 }
 
+void testParserCommandSplitAtEveryByte() {
+    std::string full = "*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$5\r\nhello\r\n";
+    for (std::size_t cut = 1; cut < full.size(); cut++) {
+        TempAof aof;
+        KeyValueStore kv{aof.path};
+        RespParser parser;
+        auto first = sendRaw(parser, kv, full.substr(0, cut));
+        CHECK(first.empty()); // nothing runs until the whole command is here
+        auto second = sendRaw(parser, kv, full.substr(cut));
+        CHECK((second == std::vector<std::string>{"+OK\r\n"}));
+        CHECK(kv.get("k") == "hello");
+    }
+}
+
+void testParserPipelinedOneByteAtATime() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    RespParser parser;
+    std::string bytes = "*3\r\n$3\r\nSET\r\n$1\r\na\r\n$2\r\n10\r\n*2\r\n$3\r\nGET\r\n$1\r\na\r\n*1\r\n$4\r\nPING\r\n";
+    std::vector<std::string> replies;
+    for (char c : bytes) {
+        for (auto& r : sendRaw(parser, kv, std::string(1, c))) replies.push_back(r);
+    }
+    CHECK((replies == std::vector<std::string>{"+OK\r\n", "$2\r\n10\r\n", "+PONG\r\n"}));
+}
+
+void testParserSplitValueContainingCrlf() {
+    std::string value = "a\r\nb";
+    std::string full = encodeRespCommand("SET", "k", value);
+    for (std::size_t cut = 1; cut < full.size(); cut++) {
+        TempAof aof;
+        KeyValueStore kv{aof.path};
+        RespParser parser;
+        sendRaw(parser, kv, full.substr(0, cut));
+        sendRaw(parser, kv, full.substr(cut));
+        CHECK(kv.get("k") == value);
+    }
+}
+
 void testEndToEndRecoveryThroughParser() {
     TempAof aof;
     {
@@ -627,6 +666,9 @@ const TestCase kTests[] = {
     {"parser single command", testParserSingleCommand},
     {"parser pipelined", testParserPipelined},
     {"parser case insensitive", testParserCaseInsensitive},
+    {"parser command split at every byte", testParserCommandSplitAtEveryByte},
+    {"parser pipelined one byte at a time", testParserPipelinedOneByteAtATime},
+    {"parser split value containing crlf", testParserSplitValueContainingCrlf},
     {"end to end recovery through parser", testEndToEndRecoveryThroughParser},
     {"replica gets every write", testReplicaGetsEveryWrite},
     {"replica stream matches aof", testReplicaStreamMatchesAof},

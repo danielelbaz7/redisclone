@@ -67,7 +67,10 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
 
     uint32_t last_parsed = index; //using this so we know where the last word starts
 
-    while (index <= persistent_buffer_.size()) { // parse element count
+    while (true) { // parse element count
+        if (index + 2 > persistent_buffer_.size()) {
+            return {ParseStatus::Incomplete, std::nullopt}; // the \r\n hasn't arrived yet, wait for more bytes
+        }
         if (persistent_buffer_.substr(index, 2) == "\r\n") {
             auto start = persistent_buffer_.data() + last_parsed;
             auto end = persistent_buffer_.data() + index;
@@ -88,6 +91,9 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
 
     for (size_t e = 0; e < element_count; e++) {
         while (true) {
+            if (index + 2 > persistent_buffer_.size()) {
+                return {ParseStatus::Incomplete, std::nullopt}; // size line not fully here yet
+            }
             if (persistent_buffer_.substr(index, 2) == "\r\n") { //parse size of next word
                 auto start = persistent_buffer_.data() + last_parsed;
                 auto end = persistent_buffer_.data() + index;
@@ -96,6 +102,10 @@ RespParser::ParseResult RespParser::parseCommand() { //parses from private buffe
                     return {ParseStatus::Invalid, std::nullopt};
                 index += 2;
                 last_parsed = index;
+
+                if (last_parsed + next_word_size + 2 > persistent_buffer_.size()) {
+                    return {ParseStatus::Incomplete, std::nullopt}; // word or its \r\n not fully here yet
+                }
 
                 //parse the actual next word
                 std::string next_word = persistent_buffer_.substr(last_parsed, next_word_size);

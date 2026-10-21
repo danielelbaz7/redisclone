@@ -138,9 +138,25 @@ const std::unordered_map<RespParser::CommandType, Handler> kHandlers = {
     {RespParser::CommandType::FlushAll, handleFlushAll},
 };
 
+bool isWrite(RespParser::CommandType type) { // checks if a command writes to the store
+    switch (type) {
+        case RespParser::CommandType::Set:
+        case RespParser::CommandType::Del:
+        case RespParser::CommandType::Expire:
+        case RespParser::CommandType::ExpireAt:
+        case RespParser::CommandType::FlushAll:
+            return true;
+        default:
+            return false;
+    }
+}
+
 } // namespace
 
-std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, int client_fd, ReplicaSet* replicas) {
+std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, int client_fd, ReplicaSet* replicas, bool read_only) {
+    if (read_only && isWrite(cmd.name)) { //a replica's data only changes through the primary, or the two drift apart
+        return "-READONLY You can't write against a read only replica.\r\n";
+    }
     if (cmd.name == RespParser::CommandType::ReplSync) { //only command that needs the socket
         return handleReplSync(kv, client_fd, replicas);
     }

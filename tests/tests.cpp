@@ -843,6 +843,42 @@ void testReplSyncDuringConcurrentWritesEndsIdentical() {
     CHECK(wrong == 0);
 }
 
+void testReadOnlyRejectsWrites() {
+    using T = RespParser::CommandType;
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    kv.set("k", "v");
+    const std::string readOnly = "-READONLY You can't write against a read only replica.\r\n";
+    CHECK(executeCommand(cmd(T::Set, {"k", "new"}), kv, -1, nullptr, true) == readOnly);
+    CHECK(executeCommand(cmd(T::Del, {"k"}), kv, -1, nullptr, true) == readOnly);
+    CHECK(executeCommand(cmd(T::Expire, {"k", "10"}), kv, -1, nullptr, true) == readOnly);
+    CHECK(executeCommand(cmd(T::ExpireAt, {"k", "99999999999"}), kv, -1, nullptr, true) == readOnly);
+    CHECK(executeCommand(cmd(T::FlushAll), kv, -1, nullptr, true) == readOnly);
+    CHECK(kv.get("k") == "v"); // nothing changed
+    CHECK(kv.ttl("k") == -1);
+}
+
+void testReadOnlyAllowsReads() {
+    using T = RespParser::CommandType;
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    kv.set("k", "v");
+    CHECK(executeCommand(cmd(T::Get, {"k"}), kv, -1, nullptr, true) == "$1\r\nv\r\n");
+    CHECK(executeCommand(cmd(T::Ttl, {"k"}), kv, -1, nullptr, true) == ":-1\r\n");
+    CHECK(executeCommand(cmd(T::Ping), kv, -1, nullptr, true) == "+PONG\r\n");
+}
+
+void testReadOnlyThroughParser() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    RespParser parser;
+    std::string bytes = "*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1\r\nv\r\n*2\r\n$3\r\nGET\r\n$1\r\nk\r\n";
+    std::vector<std::string> replies;
+    parser.append(bytes.data(), bytes.size());
+    parser.parseAndDispatchCommands([&](const std::string& r) { replies.push_back(r); }, kv, -1, nullptr, true);
+    CHECK((replies == std::vector<std::string>{"-READONLY You can't write against a read only replica.\r\n", "$-1\r\n"}));
+}
+
 void testReplSyncWithoutConnectionErrors() {
     TempAof aof;
     KeyValueStore kv{aof.path};
@@ -909,6 +945,9 @@ const TestCase kTests[] = {
     {"replsync registers connection", testReplSyncRegistersConnection},
     {"no onWrite still works", testNoOnWriteStillWorks},
     {"replsync without connection errors", testReplSyncWithoutConnectionErrors},
+    {"read only rejects writes", testReadOnlyRejectsWrites},
+    {"read only allows reads", testReadOnlyAllowsReads},
+    {"read only through parser", testReadOnlyThroughParser},
     {"flushall", testFlushAll},
     {"dispatch flushall", testDispatchFlushAll},
     {"snapshot rebuilds store", testSnapshotRebuildsStore},

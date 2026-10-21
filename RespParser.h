@@ -50,7 +50,7 @@ public:
     CommandType parseType(const std::string& word);
 
     // returns false on a protocol error, the caller should close the connection since the stream can't be trusted anymore
-    bool parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv, int client_fd = -1, ReplicaSet* replicas = nullptr);
+    bool parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv, int client_fd = -1, ReplicaSet* replicas = nullptr, bool read_only = false);
 
 private:
     std::string persistent_buffer_{};

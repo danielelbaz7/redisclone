@@ -29,7 +29,7 @@ void Server::handleClient(int client_fd) {
             parser.append(buffer, bytes_received);
             bool stream_ok = parser.parseAndDispatchCommands([&](const std::string& reply) {
                 send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
-            }, kv_, client_fd, &replicas_); //lambda that sends the reply to the client
+            }, kv_, client_fd, &replicas_, primary_.has_value()); //replicas are read only for clients
             if (!stream_ok) {
                 std::cout << "Protocol error, closing client\n";
                 break;

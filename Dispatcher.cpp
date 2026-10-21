@@ -166,3 +166,22 @@ std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, in
     }
     return it->second(cmd, kv);
 }
+
+//on reply is a function that sends the reply to the client, passed as a lambda in server as of now
+bool dispatchAll(RespParser& parser, const std::function<void(const std::string&)>& onReply, KeyValueStore &kv,
+                 int client_fd, ReplicaSet* replicas, bool read_only) {
+    while (true) {
+        RespParser::ParseResult result = parser.next();
+        if (result.status == RespParser::ParseStatus::Invalid) {
+            std::cout << "Invalid command." << std::endl;
+            onReply("-ERR Protocol error\r\n");
+            return false; // can't tell where the next command starts, so the connection has to go
+        }
+        if (result.status == RespParser::ParseStatus::Incomplete) {
+            std::cout << "Incomplete command." << std::endl;
+            return true;
+        }
+        std::cout << "Complete command." << std::endl;
+        onReply(executeCommand(result.command.value(), kv, client_fd, replicas, read_only));
+    }
+}

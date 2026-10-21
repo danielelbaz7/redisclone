@@ -6,12 +6,10 @@
 #include <stddef.h>
 #include <vector>
 #include <optional>
+#include <string>
 
 #ifndef REDISCLONE_RESPPARSER_H
 #define REDISCLONE_RESPPARSER_H
-
-class KeyValueStore;
-class ReplicaSet;
 
 class RespParser {
 public:
@@ -49,8 +47,9 @@ public:
 
     CommandType parseType(const std::string& word);
 
-    // returns false on a protocol error, the caller should close the connection since the stream can't be trusted anymore
-    bool parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv, int client_fd = -1, ReplicaSet* replicas = nullptr, bool read_only = false);
+    // takes the next complete command off the buffer. Incomplete = wait for more bytes,
+    // Invalid = protocol error, the buffer is dropped since the stream can't be trusted anymore
+    ParseResult next();
 
 private:
     std::string persistent_buffer_{};

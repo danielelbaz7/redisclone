@@ -3,7 +3,6 @@
 //
 
 #include "RespParser.h"
-#include "Dispatcher.h"
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -12,25 +11,12 @@
 void RespParser::append(char buffer[], size_t len) {
     persistent_buffer_.append(buffer, len);
 }
-bool RespParser::parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv, int client_fd, ReplicaSet* replicas, bool read_only) {
-    while (true) {
-        ParseResult result = parseCommand(); //stores status and command
-        if (result.status == ParseStatus::Invalid) {
-            std::cout << "Invalid command." << std::endl;
-            persistent_buffer_.clear(); // drop the bad bytes, the connection is closing anyway
-            onReply("-ERR Protocol error\r\n");
-            return false; // can't tell where the next command starts, so the connection has to go
-        }
-        if (result.status == ParseStatus::Incomplete) {
-            std::cout << "Incomplete command." << std::endl;
-            return true;
-        }
-        if (result.status == ParseStatus::Complete) {
-            std::cout << "Complete command." << std::endl;
-            std::string commandReply = executeCommand(result.command.value(), kv, client_fd, replicas, read_only); //executes command via dispatcher
-            onReply(commandReply);
-        }
+RespParser::ParseResult RespParser::next() {
+    ParseResult result = parseCommand(); //stores status and command
+    if (result.status == ParseStatus::Invalid) {
+        persistent_buffer_.clear(); // drop the bad bytes, the connection is closing anyway
     }
+    return result;
 }
 
 

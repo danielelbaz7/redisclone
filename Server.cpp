@@ -11,6 +11,7 @@
 #include <thread>
 #include <unistd.h>
 
+#include "Dispatcher.h"
 #include "RespParser.h"
 
 Server::Server(uint16_t port, KeyValueStore& kv, std::optional<ReplicaOf> primary)
@@ -27,7 +28,7 @@ void Server::handleClient(int client_fd) {
             std::cout << "Received: " << buffer << '\n';
             std::cout << "Received " << bytes_received << " bytes\n";
             parser.append(buffer, bytes_received);
-            bool stream_ok = parser.parseAndDispatchCommands([&](const std::string& reply) {
+            bool stream_ok = dispatchAll(parser, [&](const std::string& reply) {
                 send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
             }, kv_, client_fd, &replicas_, primary_.has_value()); //replicas are read only for clients
             if (!stream_ok) {
@@ -100,7 +101,7 @@ void Server::connectToPrimary() { //replica side, we act as a client of the prim
     auto ignoreReply = [](const std::string&) {}; //never answer the primary, it isn't waiting for replies
     std::string rest = received.substr(5); //writes that came in the same recv as +OK
     parser.append(rest.data(), rest.size());
-    bool stream_ok = parser.parseAndDispatchCommands(ignoreReply, kv_);
+    bool stream_ok = dispatchAll(parser, ignoreReply, kv_);
 
     while (stream_ok) { //apply every write the primary sends to our own store
         char buffer[1024];
@@ -110,7 +111,7 @@ void Server::connectToPrimary() { //replica side, we act as a client of the prim
             break;
         }
         parser.append(buffer, bytes_received);
-        stream_ok = parser.parseAndDispatchCommands(ignoreReply, kv_);
+        stream_ok = dispatchAll(parser, ignoreReply, kv_);
     }
     if (!stream_ok) {
         std::cerr << "Bad data from primary, stopping replication\n";

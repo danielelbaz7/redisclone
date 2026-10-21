@@ -59,7 +59,7 @@ RespParser::Command cmd(RespParser::CommandType type, std::vector<std::string> a
 std::vector<std::string> sendRaw(RespParser& parser, KeyValueStore& kv, std::string bytes) {
     std::vector<std::string> replies;
     parser.append(bytes.data(), bytes.size());
-    parser.parseAndDispatchCommands([&](const std::string& reply) { replies.push_back(reply); }, kv);
+    dispatchAll(parser, [&](const std::string& reply) { replies.push_back(reply); }, kv);
     return replies;
 }
 
@@ -452,7 +452,7 @@ void testReplicaStreamAppliesToAnotherStore() {
 
     RespParser parser;
     parser.append(stream.data(), stream.size());
-    CHECK(parser.parseAndDispatchCommands([](const std::string&) {}, replica));
+    CHECK(dispatchAll(parser, [](const std::string&) {}, replica));
     CHECK(!replica.get("a").has_value());
     CHECK(replica.get("b") == "2");
     CHECK(replica.ttl("b").value() >= 98);
@@ -544,7 +544,7 @@ void testParserInvalidCommandAsksToClose() {
 
     std::string good = "*1\r\n$4\r\nPING\r\n*1\r\n$4";
     parser.append(good.data(), good.size());
-    CHECK(parser.parseAndDispatchCommands(collect, kv)); // complete + incomplete are both fine
+    CHECK(dispatchAll(parser, collect, kv)); // complete + incomplete are both fine
 
     TempAof aof2;
     KeyValueStore kv2{aof2.path};
@@ -552,7 +552,7 @@ void testParserInvalidCommandAsksToClose() {
     std::string bad = "hello\r\n";
     badParser.append(bad.data(), bad.size());
     replies.clear();
-    CHECK(!badParser.parseAndDispatchCommands(collect, kv2)); // caller should close the connection
+    CHECK(!dispatchAll(badParser, collect, kv2)); // caller should close the connection
     CHECK((replies == std::vector<std::string>{"-ERR Protocol error\r\n"}));
 }
 
@@ -680,7 +680,7 @@ void testReplSyncRegistersConnection() {
     std::string bytes = "*1\r\n$8\r\nREPLSYNC\r\n";
     std::vector<std::string> replies;
     parser.append(bytes.data(), bytes.size());
-    parser.parseAndDispatchCommands([&](const std::string& r) { replies.push_back(r); }, kv, replica.fds[0], &replicas);
+    dispatchAll(parser, [&](const std::string& r) { replies.push_back(r); }, kv, replica.fds[0], &replicas);
     kv.set("k", "v");
     // +OK, then the (empty) snapshot, then the stream
     CHECK(replica.readAvailable() == "+OK\r\n*1\r\n$8\r\nFLUSHALL\r\n" + encodeRespCommand("SET", "k", "v"));
@@ -699,7 +699,7 @@ void applyStream(const std::string& stream, KeyValueStore& kv) {
     RespParser parser;
     std::string copy = stream;
     parser.append(copy.data(), copy.size());
-    parser.parseAndDispatchCommands([](const std::string&) {}, kv);
+    dispatchAll(parser, [](const std::string&) {}, kv);
 }
 
 void testFlushAll() {
@@ -875,7 +875,7 @@ void testReadOnlyThroughParser() {
     std::string bytes = "*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1\r\nv\r\n*2\r\n$3\r\nGET\r\n$1\r\nk\r\n";
     std::vector<std::string> replies;
     parser.append(bytes.data(), bytes.size());
-    parser.parseAndDispatchCommands([&](const std::string& r) { replies.push_back(r); }, kv, -1, nullptr, true);
+    dispatchAll(parser, [&](const std::string& r) { replies.push_back(r); }, kv, -1, nullptr, true);
     CHECK((replies == std::vector<std::string>{"-READONLY You can't write against a read only replica.\r\n", "$-1\r\n"}));
 }
 

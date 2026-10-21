@@ -78,14 +78,14 @@ std::string handleTtl(const RespParser::Command& cmd, KeyValueStore &kv) {
     return ":" + std::to_string(*result) + "\r\n";
 }
 
-std::string handleReplSync(KeyValueStore &kv, int client_fd) {
+std::string handleReplSync(int client_fd, ReplicaSet* replicas) {
     //a replica is connecting, from now on every write is also sent to this socket
-    if (client_fd < 0) {
+    if (client_fd < 0 || replicas == nullptr) {
         return "-ERR REPLSYNC needs a connection\r\n";
     }
     std::string ok = "+OK\r\n";
     send(client_fd, ok.data(), ok.size(), 0); //reply before registering so +OK comes before any streamed write
-    kv.replicas().add(client_fd);
+    replicas->add(client_fd);
     std::cout << "Replica connected\n";
     return ""; //already replied
 }
@@ -107,9 +107,9 @@ const std::unordered_map<RespParser::CommandType, Handler> kHandlers = {
 
 } // namespace
 
-std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, int client_fd) {
+std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, int client_fd, ReplicaSet* replicas) {
     if (cmd.name == RespParser::CommandType::ReplSync) { //only command that needs the socket
-        return handleReplSync(kv, client_fd);
+        return handleReplSync(client_fd, replicas);
     }
     auto it = kHandlers.find(cmd.name);
     if (it == kHandlers.end()) {

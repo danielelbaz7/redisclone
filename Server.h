@@ -10,6 +10,7 @@
 
 #include "RespParser.h"
 #include "KeyValueStore.h"
+#include "ReplicaSet.h"
 
 struct ReplicaOf { // where a replica's primary lives
     std::string host;
@@ -28,6 +29,7 @@ private:
     uint16_t server_port_;
     KeyValueStore& kv_;
     std::optional<ReplicaOf> primary_; // set only when running as a replica
+    ReplicaSet replicas_; // connected replica sockets, only used when we're the primary
 };
 
 

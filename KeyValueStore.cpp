@@ -15,7 +15,9 @@ KeyValueStore::KeyValueStore(const std::string &aofPath) : shards(16), aof_(aofP
 
 void KeyValueStore::logWrite(const std::string &commandType, const std::string &key, const std::optional<std::string> &value) {
     aof_.appendToAof(commandType, key, value);
-    replicas_.broadcast(encodeRespCommand(commandType, key, value));
+    if (onWrite_) { //empty when no server is attached, e.g. in tests
+        onWrite_(encodeRespCommand(commandType, key, value));
+    }
 }
 
 std::optional<std::string> KeyValueStore::get(const std::string &key) {

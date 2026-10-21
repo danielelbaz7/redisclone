@@ -14,6 +14,7 @@
 #include "AofLog.h"
 #include "Dispatcher.h"
 #include "KeyValueStore.h"
+#include "ReplicaSet.h"
 #include "RespParser.h"
 
 namespace {
@@ -472,11 +473,18 @@ struct FakeReplica {
     }
 };
 
+// connects a replica list to the store the same way Server does
+void attach(KeyValueStore& kv, ReplicaSet& replicas) {
+    kv.setOnWrite([&](const std::string& encoded) { replicas.broadcast(encoded); });
+}
+
 void testReplicaGetsEveryWrite() {
     TempAof aof;
     KeyValueStore kv{aof.path};
+    ReplicaSet replicas;
+    attach(kv, replicas);
     FakeReplica replica;
-    kv.replicas().add(replica.fds[0]);
+    replicas.add(replica.fds[0]);
     kv.set("k", "v");
     kv.expire("k", 100);
     kv.del("k");
@@ -493,7 +501,9 @@ void testReplicaStreamMatchesAof() {
     FakeReplica replica;
     {
         KeyValueStore kv{aof.path};
-        kv.replicas().add(replica.fds[0]);
+        ReplicaSet replicas;
+        attach(kv, replicas);
+        replicas.add(replica.fds[0]);
         kv.set("a", "1");
         kv.set("b", "2");
         kv.del("a");
@@ -506,8 +516,10 @@ void testReadsAreNotSentToReplica() {
     TempAof aof;
     KeyValueStore kv{aof.path};
     kv.set("k", "v");
+    ReplicaSet replicas;
+    attach(kv, replicas);
     FakeReplica replica;
-    kv.replicas().add(replica.fds[0]);
+    replicas.add(replica.fds[0]);
     kv.get("k");
     kv.ttl("k");
     kv.expire("missing", 10);
@@ -517,9 +529,11 @@ void testReadsAreNotSentToReplica() {
 void testRemovedReplicaGetsNothing() {
     TempAof aof;
     KeyValueStore kv{aof.path};
+    ReplicaSet replicas;
+    attach(kv, replicas);
     FakeReplica replica;
-    kv.replicas().add(replica.fds[0]);
-    kv.replicas().remove(replica.fds[0]);
+    replicas.add(replica.fds[0]);
+    replicas.remove(replica.fds[0]);
     kv.set("k", "v");
     CHECK(replica.readAvailable().empty());
 }
@@ -527,9 +541,11 @@ void testRemovedReplicaGetsNothing() {
 void testDeadReplicaIsDroppedAndOthersStillGetWrites() {
     TempAof aof;
     KeyValueStore kv{aof.path};
+    ReplicaSet replicas;
+    attach(kv, replicas);
     FakeReplica dead, alive;
-    kv.replicas().add(dead.fds[0]);
-    kv.replicas().add(alive.fds[0]);
+    replicas.add(dead.fds[0]);
+    replicas.add(alive.fds[0]);
     close(dead.fds[1]); // replica went away
     dead.fds[1] = -1;
     kv.set("a", "1"); // must not crash (SIGPIPE) and must still reach the live one
@@ -542,14 +558,24 @@ void testDeadReplicaIsDroppedAndOthersStillGetWrites() {
 void testReplSyncRegistersConnection() {
     TempAof aof;
     KeyValueStore kv{aof.path};
+    ReplicaSet replicas;
+    attach(kv, replicas);
     FakeReplica replica;
     RespParser parser;
     std::string bytes = "*1\r\n$8\r\nREPLSYNC\r\n";
     std::vector<std::string> replies;
     parser.append(bytes.data(), bytes.size());
-    parser.parseAndDispatchCommands([&](const std::string& r) { replies.push_back(r); }, kv, replica.fds[0]);
+    parser.parseAndDispatchCommands([&](const std::string& r) { replies.push_back(r); }, kv, replica.fds[0], &replicas);
     kv.set("k", "v");
     CHECK(replica.readAvailable() == "+OK\r\n" + encodeRespCommand("SET", "k", "v")); // +OK first, then the stream
+}
+
+void testNoOnWriteStillWorks() {
+    TempAof aof;
+    KeyValueStore kv{aof.path}; // nothing attached, writes only go to the aof
+    kv.set("k", "v");
+    kv.del("k");
+    CHECK(!kv.get("k").has_value());
 }
 
 void testReplSyncWithoutConnectionErrors() {
@@ -608,6 +634,7 @@ const TestCase kTests[] = {
     {"removed replica gets nothing", testRemovedReplicaGetsNothing},
     {"dead replica is dropped and others still get writes", testDeadReplicaIsDroppedAndOthersStillGetWrites},
     {"replsync registers connection", testReplSyncRegistersConnection},
+    {"no onWrite still works", testNoOnWriteStillWorks},
     {"replsync without connection errors", testReplSyncWithoutConnectionErrors},
 };
 

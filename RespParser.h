@@ -11,6 +11,7 @@
 #define REDISCLONE_RESPPARSER_H
 
 class KeyValueStore;
+class ReplicaSet;
 
 class RespParser {
 public:
@@ -46,7 +47,7 @@ public:
 
     CommandType parseType(const std::string& word);
 
-    void parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv, int client_fd = -1);
+    void parseAndDispatchCommands(std::function<void(const std::string&)> onReply, KeyValueStore &kv, int client_fd = -1, ReplicaSet* replicas = nullptr);
 
 private:
     std::string persistent_buffer_{};

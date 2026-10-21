@@ -14,7 +14,9 @@
 #include "RespParser.h"
 
 Server::Server(uint16_t port, KeyValueStore& kv, std::optional<ReplicaOf> primary)
-    : server_port_(port), kv_(kv), primary_(std::move(primary)) {}
+    : server_port_(port), kv_(kv), primary_(std::move(primary)) {
+    kv_.setOnWrite([this](const std::string& encoded) { replicas_.broadcast(encoded); }); //set before any client threads start
+}
 
 void Server::handleClient(int client_fd) {
     RespParser parser{}; // one parser per client
@@ -27,7 +29,7 @@ void Server::handleClient(int client_fd) {
             parser.append(buffer, bytes_received);
             parser.parseAndDispatchCommands([&](const std::string& reply) {
                 send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
-            }, kv_, client_fd); //lambda that sends the reply to the client
+            }, kv_, client_fd, &replicas_); //lambda that sends the reply to the client
         }
         else if (bytes_received == 0) {
             std::cout << "Client disconnected\n";
@@ -38,7 +40,7 @@ void Server::handleClient(int client_fd) {
             break;
         }
     }
-    kv_.replicas().remove(client_fd); //no-op for normal clients. must happen before close or a new client could reuse the fd
+    replicas_.remove(client_fd); //no-op for normal clients. must happen before close or a new client could reuse the fd
     close(client_fd);
 }
 

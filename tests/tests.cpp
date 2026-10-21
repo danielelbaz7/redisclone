@@ -676,11 +676,7 @@ void testReplSyncRegistersConnection() {
     ReplicaSet replicas;
     attach(kv, replicas);
     FakeReplica replica;
-    RespParser parser;
-    std::string bytes = "*1\r\n$8\r\nREPLSYNC\r\n";
-    std::vector<std::string> replies;
-    parser.append(bytes.data(), bytes.size());
-    dispatchAll(parser, [&](const std::string& r) { replies.push_back(r); }, kv, replica.fds[0], &replicas);
+    CHECK(replicas.syncAndAdd(replica.fds[0], kv));
     kv.set("k", "v");
     // +OK, then the (empty) snapshot, then the stream
     CHECK(replica.readAvailable() == "+OK\r\n*1\r\n$8\r\nFLUSHALL\r\n" + encodeRespCommand("SET", "k", "v"));
@@ -785,7 +781,7 @@ void testReplSyncSendsExistingData() {
     primary.del("gone");
 
     FakeReplica replica;
-    CHECK(executeCommand(cmd(RespParser::CommandType::ReplSync), primary, replica.fds[0], &replicas).empty());
+    CHECK(replicas.syncAndAdd(replica.fds[0], primary));
     primary.set("after", "2");
 
     std::string received = replica.readAvailable();
@@ -795,6 +791,19 @@ void testReplSyncSendsExistingData() {
     CHECK(replicaStore.get("before") == "1");
     CHECK(replicaStore.get("after") == "2");
     CHECK(!replicaStore.get("gone").has_value());
+}
+
+void testSyncAndAddToDeadReplicaDoesNotAdd() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    ReplicaSet replicas;
+    attach(kv, replicas);
+    FakeReplica replica;
+    close(replica.fds[1]); // replica gone before the sync
+    replica.fds[1] = -1;
+    CHECK(!replicas.syncAndAdd(replica.fds[0], kv));
+    kv.set("k", "v"); // would fail/drop if it had been added, mustn't crash either way
+    CHECK(kv.get("k") == "v");
 }
 
 void testReplSyncDuringConcurrentWritesEndsIdentical() {
@@ -826,7 +835,7 @@ void testReplSyncDuringConcurrentWritesEndsIdentical() {
         });
     }
     while (started < threads) {}
-    executeCommand(cmd(RespParser::CommandType::ReplSync), primary, replica.fds[0], &replicas);
+    replicas.syncAndAdd(replica.fds[0], primary);
     for (auto& w : writers) w.join();
     replicas.remove(replica.fds[0]);
     shutdown(replica.fds[0], SHUT_WR); // ends the reader's recv loop
@@ -849,11 +858,11 @@ void testReadOnlyRejectsWrites() {
     KeyValueStore kv{aof.path};
     kv.set("k", "v");
     const std::string readOnly = "-READONLY You can't write against a read only replica.\r\n";
-    CHECK(executeCommand(cmd(T::Set, {"k", "new"}), kv, -1, nullptr, true) == readOnly);
-    CHECK(executeCommand(cmd(T::Del, {"k"}), kv, -1, nullptr, true) == readOnly);
-    CHECK(executeCommand(cmd(T::Expire, {"k", "10"}), kv, -1, nullptr, true) == readOnly);
-    CHECK(executeCommand(cmd(T::ExpireAt, {"k", "99999999999"}), kv, -1, nullptr, true) == readOnly);
-    CHECK(executeCommand(cmd(T::FlushAll), kv, -1, nullptr, true) == readOnly);
+    CHECK(executeCommand(cmd(T::Set, {"k", "new"}), kv, true) == readOnly);
+    CHECK(executeCommand(cmd(T::Del, {"k"}), kv, true) == readOnly);
+    CHECK(executeCommand(cmd(T::Expire, {"k", "10"}), kv, true) == readOnly);
+    CHECK(executeCommand(cmd(T::ExpireAt, {"k", "99999999999"}), kv, true) == readOnly);
+    CHECK(executeCommand(cmd(T::FlushAll), kv, true) == readOnly);
     CHECK(kv.get("k") == "v"); // nothing changed
     CHECK(kv.ttl("k") == -1);
 }
@@ -863,9 +872,9 @@ void testReadOnlyAllowsReads() {
     TempAof aof;
     KeyValueStore kv{aof.path};
     kv.set("k", "v");
-    CHECK(executeCommand(cmd(T::Get, {"k"}), kv, -1, nullptr, true) == "$1\r\nv\r\n");
-    CHECK(executeCommand(cmd(T::Ttl, {"k"}), kv, -1, nullptr, true) == ":-1\r\n");
-    CHECK(executeCommand(cmd(T::Ping), kv, -1, nullptr, true) == "+PONG\r\n");
+    CHECK(executeCommand(cmd(T::Get, {"k"}), kv, true) == "$1\r\nv\r\n");
+    CHECK(executeCommand(cmd(T::Ttl, {"k"}), kv, true) == ":-1\r\n");
+    CHECK(executeCommand(cmd(T::Ping), kv, true) == "+PONG\r\n");
 }
 
 void testReadOnlyThroughParser() {
@@ -875,14 +884,14 @@ void testReadOnlyThroughParser() {
     std::string bytes = "*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1\r\nv\r\n*2\r\n$3\r\nGET\r\n$1\r\nk\r\n";
     std::vector<std::string> replies;
     parser.append(bytes.data(), bytes.size());
-    dispatchAll(parser, [&](const std::string& r) { replies.push_back(r); }, kv, -1, nullptr, true);
+    dispatchAll(parser, [&](const std::string& r) { replies.push_back(r); }, kv, true);
     CHECK((replies == std::vector<std::string>{"-READONLY You can't write against a read only replica.\r\n", "$-1\r\n"}));
 }
 
-void testReplSyncWithoutConnectionErrors() {
+void testReplSyncIsNotADataCommand() {
     TempAof aof;
     KeyValueStore kv{aof.path};
-    CHECK(executeCommand(cmd(RespParser::CommandType::ReplSync), kv) == "-ERR REPLSYNC needs a connection\r\n");
+    CHECK(executeCommand(cmd(RespParser::CommandType::ReplSync), kv) == "-ERR unknown command\r\n"); // Server handles it
 }
 
 struct TestCase {
@@ -944,7 +953,7 @@ const TestCase kTests[] = {
     {"dead replica is dropped and others still get writes", testDeadReplicaIsDroppedAndOthersStillGetWrites},
     {"replsync registers connection", testReplSyncRegistersConnection},
     {"no onWrite still works", testNoOnWriteStillWorks},
-    {"replsync without connection errors", testReplSyncWithoutConnectionErrors},
+    {"replsync is not a data command", testReplSyncIsNotADataCommand},
     {"read only rejects writes", testReadOnlyRejectsWrites},
     {"read only allows reads", testReadOnlyAllowsReads},
     {"read only through parser", testReadOnlyThroughParser},
@@ -955,6 +964,7 @@ const TestCase kTests[] = {
     {"snapshot of empty store is just flushall", testSnapshotOfEmptyStoreIsJustFlushAll},
     {"replsync sends existing data", testReplSyncSendsExistingData},
     {"replsync during concurrent writes ends identical", testReplSyncDuringConcurrentWritesEndsIdentical},
+    {"sync and add to dead replica does not add", testSyncAndAddToDeadReplicaDoesNotAdd},
 };
 
 } // namespace

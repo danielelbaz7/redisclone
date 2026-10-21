@@ -4,9 +4,31 @@
 #include <iostream>
 #include <sys/socket.h>
 
+#include "KeyValueStore.h"
+
 void ReplicaSet::add(int fd) {
     std::lock_guard<std::mutex> lock(mutex_);
     fds_.push_back(fd);
+}
+
+bool ReplicaSet::syncAndAdd(int fd, KeyValueStore& kv) {
+    bool added = false;
+    //the store stays locked from the snapshot until the replica is added,
+    //so every write is either in the snapshot or streamed after it, never lost or sent twice
+    kv.snapshot([&](const std::string& data) {
+        std::string reply = "+OK\r\n" + data;
+        size_t sent = 0;
+        while (sent < reply.size()) { //a big snapshot may take more than one send
+            ssize_t n = send(fd, reply.data() + sent, reply.size() - sent, 0);
+            if (n <= 0) {
+                return; //replica went away, don't add it
+            }
+            sent += n;
+        }
+        add(fd);
+        added = true;
+    });
+    return added;
 }
 
 void ReplicaSet::remove(int fd) {

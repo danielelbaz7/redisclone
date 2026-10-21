@@ -4,7 +4,6 @@
 #include <functional>
 #include <iostream>
 #include <mutex>
-#include <sys/socket.h>
 #include <unordered_map>
 
 namespace {
@@ -98,29 +97,6 @@ std::string handleTtl(const RespParser::Command& cmd, KeyValueStore &kv) {
     return ":" + std::to_string(*result) + "\r\n";
 }
 
-std::string handleReplSync(KeyValueStore &kv, int client_fd, ReplicaSet* replicas) {
-    //a replica is connecting: send +OK and a full copy of the data, then stream every write after it
-    if (client_fd < 0 || replicas == nullptr) {
-        return "-ERR REPLSYNC needs a connection\r\n";
-    }
-    //the store stays locked from the snapshot until the replica is registered,
-    //so every write is either in the snapshot or streamed after it, never lost or sent twice
-    kv.snapshot([&](const std::string& data) {
-        std::string reply = "+OK\r\n" + data;
-        size_t sent = 0;
-        while (sent < reply.size()) { //a big snapshot may take more than one send
-            ssize_t n = send(client_fd, reply.data() + sent, reply.size() - sent, 0);
-            if (n <= 0) {
-                return; //replica went away, don't register it
-            }
-            sent += n;
-        }
-        replicas->add(client_fd);
-    });
-    std::cout << "Replica connected\n";
-    return ""; //already replied
-}
-
 std::string handleUnimplemented(const RespParser::Command& cmd, KeyValueStore &kv) {
     return "-ERR not implemented\r\n";
 }
@@ -153,12 +129,9 @@ bool isWrite(RespParser::CommandType type) { // checks if a command writes to th
 
 } // namespace
 
-std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, int client_fd, ReplicaSet* replicas, bool read_only) {
+std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, bool read_only) {
     if (read_only && isWrite(cmd.name)) { //a replica's data only changes through the primary, or the two drift apart
         return "-READONLY You can't write against a read only replica.\r\n";
-    }
-    if (cmd.name == RespParser::CommandType::ReplSync) { //only command that needs the socket
-        return handleReplSync(kv, client_fd, replicas);
     }
     auto it = kHandlers.find(cmd.name);
     if (it == kHandlers.end()) {
@@ -169,7 +142,7 @@ std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, in
 
 //on reply is a function that sends the reply to the client, passed as a lambda in server as of now
 bool dispatchAll(RespParser& parser, const std::function<void(const std::string&)>& onReply, KeyValueStore &kv,
-                 int client_fd, ReplicaSet* replicas, bool read_only) {
+                 bool read_only) {
     while (true) {
         RespParser::ParseResult result = parser.next();
         if (result.status == RespParser::ParseStatus::Invalid) {
@@ -182,6 +155,6 @@ bool dispatchAll(RespParser& parser, const std::function<void(const std::string&
             return true;
         }
         std::cout << "Complete command." << std::endl;
-        onReply(executeCommand(result.command.value(), kv, client_fd, replicas, read_only));
+        onReply(executeCommand(result.command.value(), kv, read_only));
     }
 }

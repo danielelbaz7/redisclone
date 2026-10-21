@@ -28,9 +28,30 @@ void Server::handleClient(int client_fd) {
             std::cout << "Received: " << buffer << '\n';
             std::cout << "Received " << bytes_received << " bytes\n";
             parser.append(buffer, bytes_received);
-            bool stream_ok = dispatchAll(parser, [&](const std::string& reply) {
+            bool stream_ok = true;
+            while (true) { //run every complete command in the buffer
+                RespParser::ParseResult result = parser.next();
+                if (result.status == RespParser::ParseStatus::Incomplete) {
+                    break; //wait for more bytes
+                }
+                std::string reply;
+                if (result.status == RespParser::ParseStatus::Invalid) {
+                    reply = "-ERR Protocol error\r\n";
+                    stream_ok = false;
+                } else if (result.command->name == RespParser::CommandType::ReplSync) {
+                    //this connection is a replica: send it the data, then it gets every write
+                    if (replicas_.syncAndAdd(client_fd, kv_)) {
+                        std::cout << "Replica connected\n";
+                    }
+                    continue; //syncAndAdd already replied
+                } else {
+                    reply = executeCommand(*result.command, kv_, primary_.has_value()); //replicas are read only for clients
+                }
                 send(client_fd, reply.c_str(), std::strlen(reply.c_str()), 0); //send the response
-            }, kv_, client_fd, &replicas_, primary_.has_value()); //replicas are read only for clients
+                if (!stream_ok) {
+                    break;
+                }
+            }
             if (!stream_ok) {
                 std::cout << "Protocol error, closing client\n";
                 break;

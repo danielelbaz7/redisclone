@@ -151,7 +151,14 @@ int Server::run() {
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(server_port_);
 
-    bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)); //binds socker to address
+    int reuse = 1; //lets us rebind right after a restart while old connections sit in TIME_WAIT
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    if (bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) { //binds socket to address
+        perror("bind"); //e.g. "Address already in use" if another server has the port
+        close(server_fd);
+        return 1;
+    }
 
     listen(server_fd, 5); // 5 = backlog size
 

@@ -33,5 +33,5 @@ int main(int argc, char* argv[]) {
 
     KeyValueStore store{aofPath};
     Server server{port, store, primary};
-    server.run();
+    return server.run(); // 1 if the port could not be bound
 }

@@ -2,6 +2,7 @@
 #include "AofLog.h"
 #include <charconv>
 #include <functional>
+#include <iostream>
 #include <mutex>
 #include <unordered_map>
 
@@ -76,6 +77,12 @@ std::string handleTtl(const RespParser::Command& cmd, KeyValueStore &kv) {
     return ":" + std::to_string(*result) + "\r\n";
 }
 
+std::string handleReplSync(const RespParser::Command& cmd, KeyValueStore &kv) {
+    //a replica is connecting. later this will send it the data and register it for streaming
+    std::cout << "Replica connected\n";
+    return "+OK\r\n";
+}
+
 std::string handleUnimplemented(const RespParser::Command& cmd, KeyValueStore &kv) {
     return "-ERR not implemented\r\n";
 }
@@ -89,6 +96,7 @@ const std::unordered_map<RespParser::CommandType, Handler> kHandlers = {
     {RespParser::CommandType::Del,  handleDel},
 {RespParser::CommandType::Expire,  handleExpire},
     {RespParser::CommandType::Ttl,     handleTtl},
+    {RespParser::CommandType::ReplSync, handleReplSync},
 };
 
 } // namespace

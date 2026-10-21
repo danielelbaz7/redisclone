@@ -5,20 +5,29 @@
 #ifndef REDISCLONE_SERVER_H
 #define REDISCLONE_SERVER_H
 #include <cstdint>
+#include <optional>
+#include <string>
 
 #include "RespParser.h"
 #include "KeyValueStore.h"
 
+struct ReplicaOf { // where a replica's primary lives
+    std::string host;
+    uint16_t port;
+};
+
 class Server {
 public:
-    Server(uint16_t port, KeyValueStore& kv);
+    Server(uint16_t port, KeyValueStore& kv, std::optional<ReplicaOf> primary = std::nullopt);
     int run();
 private:
     void handleClient(int client_fd);
     void handleExpiration();
+    void connectToPrimary();
 
     uint16_t server_port_;
     KeyValueStore& kv_;
+    std::optional<ReplicaOf> primary_; // set only when running as a replica
 };
 
 

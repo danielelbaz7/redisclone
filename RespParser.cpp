@@ -43,6 +43,7 @@ RespParser::CommandType RespParser::parseType(const std::string& word) {
     if (upper == "DEL")  return CommandType::Del;
     if (upper == "EXPIRE") return CommandType::Expire;
     if (upper == "TTL")    return CommandType::Ttl;
+    if (upper == "REPLSYNC") return CommandType::ReplSync;
 
     return CommandType::Unknown;
 }

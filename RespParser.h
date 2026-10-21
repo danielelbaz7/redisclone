@@ -24,6 +24,7 @@ public:
         // Exists,
         Expire,
         Ttl,
+        ReplSync,
         Unknown
     };
 

@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -579,11 +580,15 @@ struct FakeReplica {
     FakeReplica() { socketpair(AF_UNIX, SOCK_STREAM, 0, fds); }
     ~FakeReplica() { close(fds[0]); if (fds[1] >= 0) close(fds[1]); }
 
-    std::string readAvailable() { // everything sent so far, without blocking
+    std::string readAvailable() { // everything sent so far: sending is async, so read until 100ms pass with nothing new
         std::string out;
         char buffer[4096];
-        ssize_t n;
-        while ((n = recv(fds[1], buffer, sizeof(buffer), MSG_DONTWAIT)) > 0) out.append(buffer, n);
+        pollfd p{fds[1], POLLIN, 0};
+        while (poll(&p, 1, 100) > 0) {
+            ssize_t n = recv(fds[1], buffer, sizeof(buffer), 0);
+            if (n <= 0) break; // primary end shut down
+            out.append(buffer, n);
+        }
         return out;
     }
 };
@@ -676,7 +681,7 @@ void testReplSyncRegistersConnection() {
     ReplicaSet replicas;
     attach(kv, replicas);
     FakeReplica replica;
-    CHECK(replicas.syncAndAdd(replica.fds[0], kv));
+    replicas.syncAndAdd(replica.fds[0], kv);
     kv.set("k", "v");
     // +OK, then the (empty) snapshot, then the stream
     CHECK(replica.readAvailable() == "+OK\r\n*1\r\n$8\r\nFLUSHALL\r\n" + encodeRespCommand("SET", "k", "v"));
@@ -781,7 +786,7 @@ void testReplSyncSendsExistingData() {
     primary.del("gone");
 
     FakeReplica replica;
-    CHECK(replicas.syncAndAdd(replica.fds[0], primary));
+    replicas.syncAndAdd(replica.fds[0], primary);
     primary.set("after", "2");
 
     std::string received = replica.readAvailable();
@@ -793,7 +798,7 @@ void testReplSyncSendsExistingData() {
     CHECK(!replicaStore.get("gone").has_value());
 }
 
-void testSyncAndAddToDeadReplicaDoesNotAdd() {
+void testSyncAndAddToDeadReplicaIsDropped() {
     TempAof aof;
     KeyValueStore kv{aof.path};
     ReplicaSet replicas;
@@ -801,9 +806,39 @@ void testSyncAndAddToDeadReplicaDoesNotAdd() {
     FakeReplica replica;
     close(replica.fds[1]); // replica gone before the sync
     replica.fds[1] = -1;
-    CHECK(!replicas.syncAndAdd(replica.fds[0], kv));
-    kv.set("k", "v"); // would fail/drop if it had been added, mustn't crash either way
+    replicas.syncAndAdd(replica.fds[0], kv); // the sender thread finds out it's dead, mustn't crash
+    kv.set("k", "v");
+    kv.set("k2", "v");
     CHECK(kv.get("k") == "v");
+}
+
+void testSlowReplicaDoesNotBlockWrites() {
+    // the replica reads nothing while 20MB of writes happen, far more than a socket buffer holds.
+    // with a blocking send this would hang, with the queue the writes finish and the replica catches up after
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    ReplicaSet replicas;
+    attach(kv, replicas);
+    FakeReplica replica;
+    replicas.add(replica.fds[0]);
+    const std::string big(10000, 'x');
+    for (int i = 0; i < 2000; i++) kv.set("k" + std::to_string(i), big);
+    std::size_t valid = 0;
+    CHECK(decodeRespCommands(replica.readAvailable(), valid).size() == 2000);
+}
+
+void testReplicaTooFarBehindIsDropped() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    ReplicaSet replicas{1024 * 1024}; // 1MB limit
+    attach(kv, replicas);
+    FakeReplica replica;
+    replicas.add(replica.fds[0]);
+    const std::string big(10000, 'x');
+    for (int i = 0; i < 500; i++) kv.set("k" + std::to_string(i), big); // 5MB, nobody reading
+    CHECK(kv.get("k499") == big); // the primary itself is unaffected
+    std::size_t valid = 0;
+    CHECK(decodeRespCommands(replica.readAvailable(), valid).size() < 500); // cut off, gets a full resync on reconnect
 }
 
 void testReplSyncDuringConcurrentWritesEndsIdentical() {
@@ -964,7 +999,9 @@ const TestCase kTests[] = {
     {"snapshot of empty store is just flushall", testSnapshotOfEmptyStoreIsJustFlushAll},
     {"replsync sends existing data", testReplSyncSendsExistingData},
     {"replsync during concurrent writes ends identical", testReplSyncDuringConcurrentWritesEndsIdentical},
-    {"sync and add to dead replica does not add", testSyncAndAddToDeadReplicaDoesNotAdd},
+    {"sync and add to dead replica is dropped", testSyncAndAddToDeadReplicaIsDropped},
+    {"slow replica does not block writes", testSlowReplicaDoesNotBlockWrites},
+    {"replica too far behind is dropped", testReplicaTooFarBehindIsDropped},
 };
 
 } // namespace

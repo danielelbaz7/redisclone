@@ -40,10 +40,9 @@ void Server::handleClient(int client_fd) {
                     stream_ok = false;
                 } else if (result.command->name == RespParser::CommandType::ReplSync) {
                     //this connection is a replica: send it the data, then it gets every write
-                    if (replicas_.syncAndAdd(client_fd, kv_)) {
-                        std::cout << "Replica connected\n";
-                    }
-                    continue; //syncAndAdd already replied
+                    replicas_.syncAndAdd(client_fd, kv_);
+                    std::cout << "Replica connected\n";
+                    continue; //syncAndAdd queued the reply
                 } else {
                     reply = executeCommand(*result.command, kv_, primary_.has_value()); //replicas are read only for clients
                 }

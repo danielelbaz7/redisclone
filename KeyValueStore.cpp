@@ -8,16 +8,32 @@
 #include <charconv>
 #include <limits>
 
+namespace {
+const std::string kFlushAllCommand = "*1\r\n$8\r\nFLUSHALL\r\n";
+}
+
 KeyValueStore::KeyValueStore(const std::string &aofPath) : shards(16), aof_(aofPath) {
     replayAof();
 }
 
 
 void KeyValueStore::logWrite(const std::string &commandType, const std::string &key, const std::optional<std::string> &value) {
-    aof_.appendToAof(commandType, key, value);
+    logEncoded(encodeRespCommand(commandType, key, value));
+}
+
+void KeyValueStore::logEncoded(const std::string &encoded) {
+    aof_.appendEncoded(encoded);
     if (onWrite_) { //empty when no server is attached, e.g. in tests
-        onWrite_(encodeRespCommand(commandType, key, value));
+        onWrite_(encoded);
     }
+}
+
+std::vector<std::unique_lock<std::mutex>> KeyValueStore::lockAllShards() {
+    std::vector<std::unique_lock<std::mutex>> locks;
+    for (Shard& shard : shards) {
+        locks.emplace_back(shard.mutex_);
+    }
+    return locks; //all unlock when the vector is destroyed
 }
 
 std::optional<std::string> KeyValueStore::get(const std::string &key) {
@@ -128,6 +144,11 @@ int KeyValueStore::applyExpireAt(Shard &shard, const std::string &key, long long
 
 void KeyValueStore::replayAof() { // rebuilds the store on startup, nothing gets logged again
     for (const std::vector<std::string>& args : aof_.loadCommands()) {
+        if (args.size() == 1 && args[0] == "FLUSHALL") {
+            auto locks = lockAllShards();
+            applyFlushAll();
+            continue;
+        }
         if (args.size() < 2) {
             continue;
         }
@@ -148,6 +169,42 @@ void KeyValueStore::replayAof() { // rebuilds the store on startup, nothing gets
             }
         }
     }
+}
+
+void KeyValueStore::applyFlushAll() {
+    for (Shard& shard : shards) {
+        shard.store.clear();
+        shard.expirations.clear();
+    }
+}
+
+void KeyValueStore::flushAll() {
+    auto locks = lockAllShards();
+    logEncoded(kFlushAllCommand);
+    applyFlushAll();
+}
+
+void KeyValueStore::snapshot(const std::function<void(const std::string&)>& afterSnapshot) {
+    auto locks = lockAllShards();
+    auto steadyNow = std::chrono::steady_clock::now();
+    auto systemNow = std::chrono::system_clock::now();
+
+    std::string data = kFlushAllCommand; //wipe whatever the receiver had first
+    for (Shard& shard : shards) {
+        for (const auto& [key, value] : shard.store) {
+            auto it = shard.expirations.find(key);
+            if (it != shard.expirations.end() && it->second <= steadyNow) {
+                continue; //already expired, purge just hasn't removed it yet
+            }
+            data += encodeRespCommand("SET", key, value);
+            if (it != shard.expirations.end()) { //steady_clock deadline -> wall clock timestamp, same as the aof uses
+                auto deadline = systemNow + std::chrono::duration_cast<std::chrono::system_clock::duration>(it->second - steadyNow);
+                long long epochSeconds = std::chrono::duration_cast<std::chrono::seconds>(deadline.time_since_epoch()).count();
+                data += encodeRespCommand("EXPIREAT", key, std::to_string(epochSeconds));
+            }
+        }
+    }
+    afterSnapshot(data); //still holding every lock
 }
 
 void KeyValueStore::purgeExpired() {

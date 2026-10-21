@@ -47,6 +47,7 @@ RespParser::CommandType RespParser::parseType(const std::string& word) {
     if (upper == "EXPIREAT") return CommandType::ExpireAt;
     if (upper == "TTL")    return CommandType::Ttl;
     if (upper == "REPLSYNC") return CommandType::ReplSync;
+    if (upper == "FLUSHALL") return CommandType::FlushAll;
 
     return CommandType::Unknown;
 }

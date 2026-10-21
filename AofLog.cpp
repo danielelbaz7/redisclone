@@ -58,8 +58,10 @@ std::vector<std::vector<std::string>> decodeRespCommands(const std::string& data
 }
 
 void AofLog::appendToAof(const std::string& commandType, const std::string& key, const std::optional<std::string>& value) {
-    std::string encoded = encodeRespCommand(commandType, key, value);
+    appendEncoded(encodeRespCommand(commandType, key, value));
+}
 
+void AofLog::appendEncoded(const std::string& encoded) {
     std::lock_guard<std::mutex> lock(aofMutex);
     aofFile << encoded;
     aofFile.flush();

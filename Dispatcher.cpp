@@ -81,6 +81,11 @@ std::string handleExpireAt(const RespParser::Command& cmd, KeyValueStore &kv) {
     return ":" + std::to_string(result) + "\r\n";
 }
 
+std::string handleFlushAll(const RespParser::Command& cmd, KeyValueStore &kv) {
+    kv.flushAll();
+    return "+OK\r\n";
+}
+
 std::string handleTtl(const RespParser::Command& cmd, KeyValueStore &kv) {
     if (cmd.args.size() != 1) {
         return "-ERR invalid argument count\r\n";
@@ -93,14 +98,25 @@ std::string handleTtl(const RespParser::Command& cmd, KeyValueStore &kv) {
     return ":" + std::to_string(*result) + "\r\n";
 }
 
-std::string handleReplSync(int client_fd, ReplicaSet* replicas) {
-    //a replica is connecting, from now on every write is also sent to this socket
+std::string handleReplSync(KeyValueStore &kv, int client_fd, ReplicaSet* replicas) {
+    //a replica is connecting: send +OK and a full copy of the data, then stream every write after it
     if (client_fd < 0 || replicas == nullptr) {
         return "-ERR REPLSYNC needs a connection\r\n";
     }
-    std::string ok = "+OK\r\n";
-    send(client_fd, ok.data(), ok.size(), 0); //reply before registering so +OK comes before any streamed write
-    replicas->add(client_fd);
+    //the store stays locked from the snapshot until the replica is registered,
+    //so every write is either in the snapshot or streamed after it, never lost or sent twice
+    kv.snapshot([&](const std::string& data) {
+        std::string reply = "+OK\r\n" + data;
+        size_t sent = 0;
+        while (sent < reply.size()) { //a big snapshot may take more than one send
+            ssize_t n = send(client_fd, reply.data() + sent, reply.size() - sent, 0);
+            if (n <= 0) {
+                return; //replica went away, don't register it
+            }
+            sent += n;
+        }
+        replicas->add(client_fd);
+    });
     std::cout << "Replica connected\n";
     return ""; //already replied
 }
@@ -119,13 +135,14 @@ const std::unordered_map<RespParser::CommandType, Handler> kHandlers = {
 {RespParser::CommandType::Expire,  handleExpire},
     {RespParser::CommandType::ExpireAt, handleExpireAt},
     {RespParser::CommandType::Ttl,     handleTtl},
+    {RespParser::CommandType::FlushAll, handleFlushAll},
 };
 
 } // namespace
 
 std::string executeCommand(const RespParser::Command& cmd, KeyValueStore &kv, int client_fd, ReplicaSet* replicas) {
     if (cmd.name == RespParser::CommandType::ReplSync) { //only command that needs the socket
-        return handleReplSync(client_fd, replicas);
+        return handleReplSync(kv, client_fd, replicas);
     }
     auto it = kHandlers.find(cmd.name);
     if (it == kHandlers.end()) {

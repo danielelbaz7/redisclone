@@ -27,6 +27,7 @@ public:
         ExpireAt,
         Ttl,
         ReplSync,
+        FlushAll,
         Unknown
     };
 

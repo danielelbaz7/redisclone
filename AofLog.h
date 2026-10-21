@@ -18,6 +18,7 @@ public:
     explicit AofLog(const std::string& path = "appendonly.aof");
 
     void appendToAof(const std::string& commandType, const std::string& key, const std::optional<std::string>& value);
+    void appendEncoded(const std::string& encoded);
 
     std::string readAll();
 

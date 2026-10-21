@@ -682,7 +682,8 @@ void testReplSyncRegistersConnection() {
     parser.append(bytes.data(), bytes.size());
     parser.parseAndDispatchCommands([&](const std::string& r) { replies.push_back(r); }, kv, replica.fds[0], &replicas);
     kv.set("k", "v");
-    CHECK(replica.readAvailable() == "+OK\r\n" + encodeRespCommand("SET", "k", "v")); // +OK first, then the stream
+    // +OK, then the (empty) snapshot, then the stream
+    CHECK(replica.readAvailable() == "+OK\r\n*1\r\n$8\r\nFLUSHALL\r\n" + encodeRespCommand("SET", "k", "v"));
 }
 
 void testNoOnWriteStillWorks() {
@@ -691,6 +692,155 @@ void testNoOnWriteStillWorks() {
     kv.set("k", "v");
     kv.del("k");
     CHECK(!kv.get("k").has_value());
+}
+
+// what the replica does with everything after +OK
+void applyStream(const std::string& stream, KeyValueStore& kv) {
+    RespParser parser;
+    std::string copy = stream;
+    parser.append(copy.data(), copy.size());
+    parser.parseAndDispatchCommands([](const std::string&) {}, kv);
+}
+
+void testFlushAll() {
+    TempAof aof;
+    {
+        KeyValueStore kv{aof.path};
+        kv.set("a", "1");
+        kv.set("b", "2");
+        kv.expire("b", 100);
+        kv.flushAll();
+        CHECK(!kv.get("a").has_value());
+        CHECK(!kv.ttl("b").has_value());
+        kv.set("c", "3");
+    }
+    KeyValueStore kv{aof.path}; // replay: keys before FLUSHALL are gone, keys after it stay
+    CHECK(!kv.get("a").has_value());
+    CHECK(!kv.get("b").has_value());
+    CHECK(kv.get("c") == "3");
+}
+
+void testDispatchFlushAll() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    kv.set("k", "v");
+    CHECK(executeCommand(cmd(RespParser::CommandType::FlushAll), kv) == "+OK\r\n");
+    CHECK(!kv.get("k").has_value());
+}
+
+void testSnapshotRebuildsStore() {
+    TempAof primaryAof, replicaAof;
+    KeyValueStore primary{primaryAof.path};
+    for (int i = 0; i < 500; i++) primary.set("key" + std::to_string(i), std::to_string(i));
+    primary.set("with ttl", "v");
+    primary.expire("with ttl", 100);
+    primary.set("value\r\nwith crlf", "a\r\nb");
+
+    KeyValueStore replica{replicaAof.path};
+    replica.set("stale", "should be wiped");
+    std::string data;
+    primary.snapshot([&](const std::string& d) { data = d; });
+    applyStream(data, replica);
+
+    int wrong = 0;
+    for (int i = 0; i < 500; i++) {
+        if (replica.get("key" + std::to_string(i)) != std::to_string(i)) wrong++;
+    }
+    CHECK(wrong == 0);
+    CHECK(replica.get("value\r\nwith crlf") == "a\r\nb");
+    CHECK(replica.ttl("with ttl").value() >= 98);
+    CHECK(replica.ttl("key0") == -1);
+    CHECK(!replica.get("stale").has_value());
+}
+
+void testSnapshotSkipsExpiredKeys() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    kv.set("expired", "v");
+    kv.expire("expired", 0); // expired but purge hasn't run
+    kv.set("live", "v");
+    std::string data;
+    kv.snapshot([&](const std::string& d) { data = d; });
+    std::size_t valid = 0;
+    auto commands = decodeRespCommands(data, valid);
+    CHECK(commands.size() == 2); // FLUSHALL, SET live
+    CHECK(commands[1][1] == "live");
+}
+
+void testSnapshotOfEmptyStoreIsJustFlushAll() {
+    TempAof aof;
+    KeyValueStore kv{aof.path};
+    std::string data;
+    kv.snapshot([&](const std::string& d) { data = d; });
+    CHECK(data == "*1\r\n$8\r\nFLUSHALL\r\n");
+}
+
+void testReplSyncSendsExistingData() {
+    TempAof primaryAof, replicaAof;
+    KeyValueStore primary{primaryAof.path};
+    ReplicaSet replicas;
+    attach(primary, replicas);
+    primary.set("before", "1"); // written before the replica connected
+    primary.set("gone", "x");
+    primary.del("gone");
+
+    FakeReplica replica;
+    CHECK(executeCommand(cmd(RespParser::CommandType::ReplSync), primary, replica.fds[0], &replicas).empty());
+    primary.set("after", "2");
+
+    std::string received = replica.readAvailable();
+    CHECK(received.rfind("+OK\r\n", 0) == 0);
+    KeyValueStore replicaStore{replicaAof.path};
+    applyStream(received.substr(5), replicaStore);
+    CHECK(replicaStore.get("before") == "1");
+    CHECK(replicaStore.get("after") == "2");
+    CHECK(!replicaStore.get("gone").has_value());
+}
+
+void testReplSyncDuringConcurrentWritesEndsIdentical() {
+    // writers keep going while the replica syncs: every write must land in the snapshot or the stream, exactly once
+    TempAof primaryAof, replicaAof;
+    KeyValueStore primary{primaryAof.path};
+    ReplicaSet replicas;
+    attach(primary, replicas);
+    FakeReplica replica;
+
+    std::string received;
+    std::thread reader([&] { // drain the socket so a big snapshot can't fill it and block the primary
+        char buffer[4096];
+        ssize_t n;
+        while ((n = recv(replica.fds[1], buffer, sizeof(buffer), 0)) > 0) received.append(buffer, n);
+    });
+
+    const int threads = 4, perThread = 2000;
+    std::atomic<int> started{0};
+    std::vector<std::thread> writers;
+    for (int t = 0; t < threads; t++) {
+        writers.emplace_back([&, t] {
+            started++;
+            for (int i = 0; i < perThread; i++) {
+                std::string key = "k" + std::to_string(i % 50); // same keys rewritten over and over
+                primary.set(key, std::to_string(t) + ":" + std::to_string(i));
+                if (i % 7 == 0) primary.del("k" + std::to_string((i + t) % 50));
+            }
+        });
+    }
+    while (started < threads) {}
+    executeCommand(cmd(RespParser::CommandType::ReplSync), primary, replica.fds[0], &replicas);
+    for (auto& w : writers) w.join();
+    replicas.remove(replica.fds[0]);
+    shutdown(replica.fds[0], SHUT_WR); // ends the reader's recv loop
+    reader.join();
+
+    KeyValueStore replicaStore{replicaAof.path};
+    CHECK(received.rfind("+OK\r\n", 0) == 0);
+    applyStream(received.substr(5), replicaStore);
+    int wrong = 0;
+    for (int i = 0; i < 50; i++) {
+        std::string key = "k" + std::to_string(i);
+        if (primary.get(key) != replicaStore.get(key)) wrong++;
+    }
+    CHECK(wrong == 0);
 }
 
 void testReplSyncWithoutConnectionErrors() {
@@ -759,6 +909,13 @@ const TestCase kTests[] = {
     {"replsync registers connection", testReplSyncRegistersConnection},
     {"no onWrite still works", testNoOnWriteStillWorks},
     {"replsync without connection errors", testReplSyncWithoutConnectionErrors},
+    {"flushall", testFlushAll},
+    {"dispatch flushall", testDispatchFlushAll},
+    {"snapshot rebuilds store", testSnapshotRebuildsStore},
+    {"snapshot skips expired keys", testSnapshotSkipsExpiredKeys},
+    {"snapshot of empty store is just flushall", testSnapshotOfEmptyStoreIsJustFlushAll},
+    {"replsync sends existing data", testReplSyncSendsExistingData},
+    {"replsync during concurrent writes ends identical", testReplSyncDuringConcurrentWritesEndsIdentical},
 };
 
 } // namespace

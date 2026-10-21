@@ -24,6 +24,10 @@ public:
     std::optional<long long> ttl(const std::string &key);
     int del(const std::string &key);
     void purgeExpired();
+    void flushAll();
+    // resp commands that turn any store into a copy of this one: FLUSHALL, then SET (+ EXPIREAT) per key.
+    // every shard stays locked while afterSnapshot runs, so no write can happen in between
+    void snapshot(const std::function<void(const std::string&)>& afterSnapshot);
     // called with the resp bytes of every write, under the shard lock so order is preserved
     void setOnWrite(std::function<void(const std::string&)> onWrite) { onWrite_ = std::move(onWrite); }
 private:
@@ -39,6 +43,10 @@ private:
 
     // every write goes through here: appended to the aof and passed to onWrite_
     void logWrite(const std::string &commandType, const std::string &key, const std::optional<std::string> &value);
+    void logEncoded(const std::string &encoded);
+
+    // always locks in index order, so two callers (or a caller and a single-shard writer) can't deadlock
+    std::vector<std::unique_lock<std::mutex>> lockAllShards();
 
     Shard& findShard(const std::string& key) { //will be used in every function, split the kvstore up into shards
         return shards[std::hash<std::string>{}(key) % shards.size()];
@@ -48,6 +56,7 @@ private:
     void applySet(Shard &shard, const std::string &key, const std::string &value);
     int applyDel(Shard &shard, const std::string &key);
     int applyExpireAt(Shard &shard, const std::string &key, long long epochSeconds);
+    void applyFlushAll(); // caller must hold every shard lock
 
     void replayAof();
 

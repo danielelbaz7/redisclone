@@ -4,7 +4,17 @@
 #include <filesystem>
 #include <sstream>
 
-AofLog::AofLog(const std::string& path) : path_(path), aofFile(path, std::ios::app) {}
+AofLog::AofLog(const std::string& path)
+    : path_(path), aofFile(path, std::ios::app), writer_(&AofLog::writeLoop, this) {}
+
+AofLog::~AofLog() {
+    {
+        std::lock_guard<std::mutex> lock(aofMutex);
+        stopping_ = true;
+    }
+    wakeup_.notify_one();
+    writer_.join(); //writeLoop writes what's left before it returns
+}
 
 std::string encodeRespCommand(const std::string& commandType, const std::string& key, const std::optional<std::string>& value) {
     int argCount = value.has_value() ? 3 : 2;
@@ -63,8 +73,24 @@ void AofLog::appendToAof(const std::string& commandType, const std::string& key,
 
 void AofLog::appendEncoded(const std::string& encoded) {
     std::lock_guard<std::mutex> lock(aofMutex);
-    aofFile << encoded;
-    aofFile.flush();
+    pending_ += encoded; //in memory only, the client doesn't wait for the file
+    wakeup_.notify_one();
+}
+
+void AofLog::writeLoop() { //runs on its own thread
+    std::unique_lock<std::mutex> lock(aofMutex);
+    while (true) {
+        wakeup_.wait(lock, [&] { return !pending_.empty() || stopping_; }); //sleeps until there is work
+        if (pending_.empty()) {
+            return; //stopping and everything is written
+        }
+        std::string data;
+        data.swap(pending_); //take everything queued so far, one write for many commands
+        lock.unlock(); //appendEncoded can keep queueing while we write
+        aofFile << data;
+        aofFile.flush();
+        lock.lock();
+    }
 }
 
 std::string AofLog::readAll() {
